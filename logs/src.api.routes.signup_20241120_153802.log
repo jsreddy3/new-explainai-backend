@@ -1,2 +1,0 @@
-2024-11-20 15:38:05,174 - src.api.routes.signup - INFO - Attempting signup for email: test@example.com
-2024-11-20 15:38:05,646 - src.api.routes.signup - ERROR - Supabase error, falling back to local DB: not enough values to unpack (expected 2, got 1)

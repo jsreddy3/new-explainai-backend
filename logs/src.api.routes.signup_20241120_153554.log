@@ -1,4 +1,0 @@
-2024-11-20 15:35:55,016 - src.api.routes.signup - INFO - Attempting signup for email: test@example.com
-2024-11-20 15:35:55,017 - src.api.routes.signup - ERROR - Unexpected error during signup: Invalid URL
-2024-11-20 15:36:56,697 - src.api.routes.signup - INFO - Attempting signup for email: test@example.com
-2024-11-20 15:36:56,698 - src.api.routes.signup - ERROR - Unexpected error during signup: Invalid URL

@@ -1,3 +1,0 @@
-2024-11-20 15:37:24,547 - src.api.routes.signup - INFO - Attempting signup for email: test@example.com
-2024-11-20 15:37:25,144 - src.api.routes.signup - ERROR - Supabase error: ('count', None)
-2024-11-20 15:37:25,167 - src.api.routes.signup - INFO - Local DB signup successful for: test@example.com

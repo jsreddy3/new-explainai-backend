@@ -1,0 +1,44 @@
+2024-11-20 16:52:21,090 - src.services.pdf - INFO - Starting PDF text extraction with LlamaParse
+2024-11-20 16:52:24,038 - src.services.pdf - INFO - LlamaParse extraction complete. Text length: 3107
+2024-11-20 16:52:24,039 - src.services.pdf - INFO - Successfully extracted text from PDF: 
+2024-11-20 16:52:24,039 - src.services.pdf - INFO - Splitting text of length 3107 into chunks of size 2500
+2024-11-20 16:52:24,039 - src.services.pdf - INFO - Created 2 chunks
+2024-11-20 16:52:24,039 - src.services.pdf - INFO - Starting to process 2 chunks
+2024-11-20 16:52:24,039 - src.services.pdf - INFO - Processing chunk 1/2 (length: 2500)
+2024-11-20 16:52:24,039 - src.services.pdf - INFO - Processing chunk 1
+2024-11-20 16:52:26,625 - src.services.pdf - INFO - Processing chunk 2/2 (length: 607)
+2024-11-20 16:52:26,625 - src.services.pdf - INFO - Processing chunk 2
+2024-11-20 16:52:27,827 - src.services.pdf - INFO - Finished processing all chunks. Total processed text length: 2501
+2024-11-20 17:07:50,747 - src.services.pdf - INFO - Starting PDF text extraction with LlamaParse
+2024-11-20 17:07:53,084 - src.services.pdf - INFO - LlamaParse extraction complete. Text length: 3107
+2024-11-20 17:07:53,085 - src.services.pdf - INFO - Successfully extracted text from PDF: 
+2024-11-20 17:07:53,085 - src.services.pdf - INFO - Splitting text of length 3107 into chunks of size 2500
+2024-11-20 17:07:53,085 - src.services.pdf - INFO - Created 2 chunks
+2024-11-20 17:07:53,085 - src.services.pdf - INFO - Starting to process 2 chunks
+2024-11-20 17:07:53,085 - src.services.pdf - INFO - Processing chunk 1/2 (length: 2500)
+2024-11-20 17:07:53,085 - src.services.pdf - INFO - Processing chunk 1
+2024-11-20 17:07:55,913 - src.services.pdf - INFO - Processing chunk 2/2 (length: 607)
+2024-11-20 17:07:55,913 - src.services.pdf - INFO - Processing chunk 2
+2024-11-20 17:07:57,279 - src.services.pdf - INFO - Finished processing all chunks. Total processed text length: 2687
+2024-11-20 17:09:22,137 - src.services.pdf - INFO - Starting PDF text extraction with LlamaParse
+2024-11-20 17:09:25,095 - src.services.pdf - INFO - LlamaParse extraction complete. Text length: 3107
+2024-11-20 17:09:25,096 - src.services.pdf - INFO - Successfully extracted text from PDF: 
+2024-11-20 17:09:25,096 - src.services.pdf - INFO - Splitting text of length 3107 into chunks of size 2500
+2024-11-20 17:09:25,096 - src.services.pdf - INFO - Created 2 chunks
+2024-11-20 17:09:25,096 - src.services.pdf - INFO - Starting to process 2 chunks
+2024-11-20 17:09:25,096 - src.services.pdf - INFO - Processing chunk 1/2 (length: 2500)
+2024-11-20 17:09:25,096 - src.services.pdf - INFO - Processing chunk 1
+2024-11-20 17:09:28,005 - src.services.pdf - INFO - Processing chunk 2/2 (length: 607)
+2024-11-20 17:09:28,005 - src.services.pdf - INFO - Processing chunk 2
+2024-11-20 17:09:28,923 - src.services.pdf - INFO - Finished processing all chunks. Total processed text length: 2700
+2024-11-20 17:10:49,559 - src.services.pdf - INFO - Starting PDF text extraction with LlamaParse
+2024-11-20 17:10:51,975 - src.services.pdf - INFO - LlamaParse extraction complete. Text length: 3107
+2024-11-20 17:10:51,976 - src.services.pdf - INFO - Successfully extracted text from PDF: 
+2024-11-20 17:10:51,976 - src.services.pdf - INFO - Splitting text of length 3107 into chunks of size 2500
+2024-11-20 17:10:51,976 - src.services.pdf - INFO - Created 2 chunks
+2024-11-20 17:10:51,976 - src.services.pdf - INFO - Starting to process 2 chunks
+2024-11-20 17:10:51,976 - src.services.pdf - INFO - Processing chunk 1/2 (length: 2500)
+2024-11-20 17:10:51,976 - src.services.pdf - INFO - Processing chunk 1
+2024-11-20 17:10:54,713 - src.services.pdf - INFO - Processing chunk 2/2 (length: 607)
+2024-11-20 17:10:54,714 - src.services.pdf - INFO - Processing chunk 2
+2024-11-20 17:10:55,970 - src.services.pdf - INFO - Finished processing all chunks. Total processed text length: 2538

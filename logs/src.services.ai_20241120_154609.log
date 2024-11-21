@@ -1,0 +1,28 @@
+2024-11-20 15:46:24,070 - src.services.ai - ERROR - Error generating questions: litellm.APIConnectionError: Could not automatically determine credentials. Please set GOOGLE_APPLICATION_CREDENTIALS or explicitly create credentials and re-run the application. For more information, please see https://cloud.google.com/docs/authentication/getting-started
+Traceback (most recent call last):
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/litellm/main.py", line 481, in acompletion
+    response = await init_response
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/litellm/llms/vertex_ai_and_google_ai_studio/gemini/vertex_and_google_ai_studio_gemini.py", line 1208, in async_completion
+    _auth_header, vertex_project = await self._ensure_access_token_async(
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/litellm/llms/vertex_ai_and_google_ai_studio/vertex_llm_base.py", line 282, in _ensure_access_token_async
+    self._credentials, cred_project_id = await asyncify(self.load_auth)(
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/litellm/litellm_core_utils/asyncify.py", line 63, in wrapper
+    return await anyio.to_thread.run_sync(
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/anyio/to_thread.py", line 28, in run_sync
+    return await get_asynclib().run_sync_in_worker_thread(func, *args, cancellable=cancellable,
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/anyio/_backends/_asyncio.py", line 818, in run_sync_in_worker_thread
+    return await future
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/asyncio/futures.py", line 284, in __await__
+    yield self  # This tells Task to wait for completion.
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/asyncio/tasks.py", line 328, in __wakeup
+    future.result()
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/asyncio/futures.py", line 201, in result
+    raise self._exception
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/anyio/_backends/_asyncio.py", line 754, in run
+    result = context.run(func, *args)
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/litellm/llms/vertex_ai_and_google_ai_studio/vertex_llm_base.py", line 91, in load_auth
+    creds, creds_project_id = google_auth.default(
+  File "/Users/jaidenreddy/opt/anaconda3/lib/python3.9/site-packages/google/auth/_default.py", line 483, in default
+    raise exceptions.DefaultCredentialsError(_HELP_MESSAGE)
+google.auth.exceptions.DefaultCredentialsError: Could not automatically determine credentials. Please set GOOGLE_APPLICATION_CREDENTIALS or explicitly create credentials and re-run the application. For more information, please see https://cloud.google.com/docs/authentication/getting-started
+

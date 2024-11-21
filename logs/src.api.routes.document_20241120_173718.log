@@ -1,0 +1,8 @@
+2024-11-20 17:37:18,982 - src.api.routes.document - INFO - Fetching chunks for document ID: a22e78a4-652d-4ad7-85d3-91bd91c0e2ea
+2024-11-20 17:37:18,992 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:37:34,096 - src.api.routes.document - INFO - Created document with ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:37:34,103 - src.api.routes.document - INFO - Successfully processed document with 2 chunks
+2024-11-20 17:37:34,161 - src.api.routes.document - INFO - Fetching chunks for document ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:37:34,164 - src.api.routes.document - INFO - Fetching chunks for document ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:37:34,165 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:37:34,167 - src.api.routes.document - INFO - Found 2 chunks

@@ -1,0 +1,45 @@
+# FastAPI and Server
+fastapi==0.109.2
+uvicorn==0.27.1
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.6.1
+
+# Database
+sqlalchemy==2.0.27
+aiosqlite==0.20.0
+alembic==1.12.1
+
+# PDF Processing
+PyPDF2==3.0.1
+llama-parse==0.5.14
+llama-index==0.9.48
+
+# AI and ML
+openai==1.55.0
+anthropic==0.18.1
+
+# Authentication and Storage
+supabase==2.10.0
+gotrue==2.10.0
+postgrest==0.18.0
+realtime==2.0.6
+storage3==0.9.0
+supafunc==0.7.0
+python-jose==3.3.0
+passlib==1.7.4
+bcrypt==4.1.2
+
+# Logging and Monitoring
+loguru==0.7.2
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.1
+
+# Miscellaneous
+python-dotenv==1.0.1
+python-magic==0.4.27
+email-validator==2.1.2
+litellm==1.52.11

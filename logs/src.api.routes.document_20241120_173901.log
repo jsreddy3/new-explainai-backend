@@ -1,0 +1,38 @@
+2024-11-20 17:39:17,901 - src.api.routes.document - INFO - Fetching chunks for document ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:39:17,903 - src.api.routes.document - INFO - Fetching chunks for document ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:39:17,910 - src.api.routes.document - INFO - Fetching chunks for document ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:39:17,912 - src.api.routes.document - INFO - Fetching chunks for document ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:39:17,915 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:39:17,916 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:39:17,919 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:39:17,919 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:44:39,192 - src.api.routes.document - INFO - Fetching chunks for document ID: 8f00e78d-16b6-40bf-bced-6a9756912d4c
+2024-11-20 17:44:39,195 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:44:54,401 - src.api.routes.document - INFO - Created document with ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:44:54,407 - src.api.routes.document - INFO - Successfully processed document with 2 chunks
+2024-11-20 17:44:54,464 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:44:54,466 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:44:54,470 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:44:54,472 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:47:38,923 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:47:38,932 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:48:24,093 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:48:24,096 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:51:17,131 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:51:17,134 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:53:07,789 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:53:07,794 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 17:57:06,715 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 17:57:06,719 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 18:01:16,668 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 18:01:16,670 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 18:02:38,268 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 18:02:38,271 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 18:07:38,204 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 18:07:38,207 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 18:07:45,713 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 18:07:45,715 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 18:08:51,580 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 18:08:51,584 - src.api.routes.document - INFO - Found 2 chunks
+2024-11-20 18:09:07,014 - src.api.routes.document - INFO - Fetching chunks for document ID: 46cdb3ad-69b7-43c1-8409-a9b545178b21
+2024-11-20 18:09:07,017 - src.api.routes.document - INFO - Found 2 chunks

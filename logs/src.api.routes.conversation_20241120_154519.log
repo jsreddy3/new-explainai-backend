@@ -1,0 +1,1 @@
+2024-11-20 15:45:34,337 - src.api.routes.conversation - ERROR - Error in chat: get_chat_context() got an unexpected keyword argument 'custom_context'

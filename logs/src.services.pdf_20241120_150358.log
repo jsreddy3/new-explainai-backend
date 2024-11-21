@@ -1,0 +1,2 @@
+2024-11-20 15:04:12,352 - src.services.pdf - ERROR - Error extracting text from PDF: Detected nested async. Please use nest_asyncio.apply() to allow nested event loops.Or, use async entry methods like `aquery()`, `aretriever`, `achat`, etc.
+2024-11-20 15:04:12,352 - src.services.pdf - ERROR - Error processing PDF: 500: Error processing PDF: Detected nested async. Please use nest_asyncio.apply() to allow nested event loops.Or, use async entry methods like `aquery()`, `aretriever`, `achat`, etc.

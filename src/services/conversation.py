@@ -398,16 +398,39 @@ class ConversationService:
         async for token in self.ai_service.generate_response(context):
             yield token
 
-    async def _generate_merge_summary(self, messages: List[Message]) -> str:
+    async def _generate_merge_summary(self, messages: List[Message], conversation_id: str) -> str:
         """Generate a summary for a conversation"""
         # Format messages for AI summary
         formatted_messages = [
             {"role": msg.role, "content": msg.content}
             for msg in messages
         ]
+
+        # Get conversation context
+        conversation = await self._get_conversation(conversation_id)
+        context = {
+            "messages": formatted_messages,
+            "highlighted_text": conversation.meta_data.get("highlighted_text", "") if conversation.meta_data else "",
+            "conversation": {
+                "id": str(conversation.id),
+                "type": conversation.meta_data.get("type", "chunk") if conversation.meta_data else "chunk"
+            }
+        }
+
+        # Get chunk context if available
+        if conversation.chunk_id:
+            chunk_info = await self.get_chunk(conversation_id)
+            context["chunk"] = {
+                "id": str(conversation.chunk_id),
+                "text": chunk_info.get("text", "")
+            }
         
         # Get AI summary
-        summary = await self.ai_service.summarize_conversation(formatted_messages)
+        summary = await self.ai_service.summarize_conversation(
+            document_id=conversation.document_id,
+            conversation_id=conversation_id,
+            context=context
+        )
         return summary
 
     async def _find_insertion_point(self, main_messages: List[Message], highlight_messages: List[Message]) -> int:
@@ -430,7 +453,7 @@ class ConversationService:
         highlight_messages = await self.get_conversation_messages(highlight_conversation_id)
         
         # Generate summary and find insertion point
-        summary = await self._generate_merge_summary(highlight_messages)
+        summary = await self._generate_merge_summary(highlight_messages, highlight_conversation_id)
         insertion_index = await self._find_insertion_point(main_messages, highlight_messages)
         
         # Create merge message
@@ -447,7 +470,7 @@ class ConversationService:
         return {
             "summary": summary,
             "insertion_index": insertion_index,
-            "merge_message": merge_message
+            "merge_message": merge_message.to_dict()
         }
 
     # Handlers that emit events
@@ -571,7 +594,7 @@ class ConversationService:
                 event.data["highlight_conversation_id"]
             )
             await event_bus.emit(Event(
-                type="conversation.merge.completed",
+                type="conversation.chunk.merge.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
                 data={
@@ -583,7 +606,7 @@ class ConversationService:
         except Exception as e:
             logger.error(f"Error merging conversations: {str(e)}")
             await event_bus.emit(Event(
-                type="conversation.merge.error",
+                type="conversation.chunk.merge.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
                 data={

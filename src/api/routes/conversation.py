@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
 from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
@@ -11,6 +12,7 @@ from src.services.ai import AIService
 from src.core.events import event_bus, Event
 from src.core.websocket_manager import manager
 from src.core.logging import setup_logger
+from src.models.database import Conversation
 
 logger = setup_logger(__name__)
 ai_service = AIService()
@@ -44,7 +46,10 @@ class WebSocketHandler:
             "conversation.questions.list.completed", "conversation.questions.list.error",
             
             # Merge events
-            "conversation.merge.completed", "conversation.merge.error"
+            "conversation.merge.completed", "conversation.merge.error",
+            
+            # Document events (needed for chunk operations)
+            "document.chunk.list.completed", "document.chunk.list.error"
         ]
 
     async def connect(self):
@@ -231,6 +236,15 @@ class WebSocketHandler:
             }
         ))
 
+    async def handle_list_chunks(self, data: Dict):
+        """Handle request to list document chunks"""
+        await event_bus.emit(Event(
+            type="document.chunk.list.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={"document_id": self.document_id}
+        ))
+
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message using match-case"""
         msg_type = message.get("type")
@@ -242,13 +256,39 @@ class WebSocketHandler:
             case "conversation.chunk.create":
                 await self.handle_create_chunk_conversation(data)
             case "conversation.chunk.merge":
-                await self.handle_merge_chunk_conversations(data)
+                # Convert chunk merge request to regular merge request
+                chunk_conversation_id = data.get("conversation_ids", [])[0]
+                if not chunk_conversation_id:
+                    await self.websocket.send_json({"error": "Missing conversation ID to merge"})
+                    return
+                
+                # Find main conversation
+                result = await self.db.execute(
+                    select(Conversation).where(
+                        and_(
+                            Conversation.document_id == self.document_id,
+                            Conversation.chunk_id.is_(None)
+                        )
+                    )
+                )
+                main_conversation = result.scalar_one_or_none()
+                if not main_conversation:
+                    await self.websocket.send_json({"error": "No main conversation found"})
+                    return
+
+                # Use existing merge handler with the correct IDs
+                await self.handle_merge_conversations({
+                    "main_conversation_id": str(main_conversation.id),
+                    "highlight_conversation_id": chunk_conversation_id
+                })
             case "conversation.message.send":
                 await self.handle_send_message(data)
             case "conversation.list":
                 await self.handle_list_conversations(data)
             case "conversation.questions.generate":
                 await self.handle_generate_questions(data)
+            case "document.chunk.list":
+                await self.handle_list_chunks(data)
             case _:
                 await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
                 

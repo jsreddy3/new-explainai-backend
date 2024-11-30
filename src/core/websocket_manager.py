@@ -38,7 +38,9 @@ class WebSocketManager:
             document_id = event.document_id
             if document_id in self.connections:
                 for scope in self.connections[document_id].values():
-                    for connection_id, websocket in scope.items():
+                    if event.connection_id in scope:
+                        connection_id = event.connection_id
+                        websocket = scope[connection_id]
                         if (connection_id in self.connection_listeners and 
                             event.type in self.connection_listeners[connection_id]):
                             try:

@@ -292,3 +292,128 @@ async def test_multiple_chunks_and_merge():
             response = await ws_conv.receive_json()
             assert response["type"] == "conversation.questions.generate.completed"
             assert len(response["data"]["questions"]) > 0
+
+@pytest.mark.asyncio
+async def test_multi_user_workflow():
+    """Test 6: Multiple users interacting with the same document simultaneously"""
+    async with aiohttp.ClientSession() as session:
+        # Upload document that will be shared between users
+        document_data = await upload_test_document(session)
+        document_id = document_data["document_id"]
+        
+        # Create multiple WebSocket connections simulating different users
+        async with \
+            WebSocketTestClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}", "user1") as ws_user1, \
+            WebSocketTestClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}", "user2") as ws_user2, \
+            WebSocketTestClient(session, f"ws://localhost:8000/api/documents/stream/{document_id}", "user3") as ws_doc:
+            
+            # User 1: Create main conversation
+            await ws_user1.send_json({
+                "type": "conversation.main.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": document_data["current_chunk"]["id"]
+                }
+            })
+            response = await ws_user1.receive_json()
+            assert response["type"] == "conversation.main.create.completed"
+            main_conversation_id = response["data"]["conversation_id"]
+
+            # User 2: Create chunk conversation
+            await ws_user2.send_json({
+                "type": "conversation.chunk.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": document_data["current_chunk"]["id"]
+                }
+            })
+            response = await ws_user2.receive_json()
+            assert response["type"] == "conversation.chunk.create.completed"
+            chunk_conversation_id = response["data"]["conversation_id"]
+
+            # User 3: Request chunk list while others are chatting
+            await ws_doc.send_json({
+                "type": "document.chunk.list",
+                "data": {"document_id": document_id}
+            })
+            response = await ws_doc.receive_json()
+            assert response["type"] == "document.chunk.list.completed"
+            chunks = response["data"]["chunks"]
+
+            # Simulate concurrent chat messages
+            chat_tasks = []
+            
+            # User 1: Multiple messages in main conversation
+            chat_tasks.append(asyncio.create_task(ws_user1.send_json({
+                "type": "conversation.message.send",
+                "data": {
+                    "content": "What is the main topic of this document?",
+                    "document_id": document_id,
+                    "conversation_id": main_conversation_id
+                }
+            })))
+            
+            # User 2: Multiple messages in chunk conversation
+            chat_tasks.append(asyncio.create_task(ws_user2.send_json({
+                "type": "conversation.message.send",
+                "data": {
+                    "content": "Can you explain this section in detail?",
+                    "document_id": document_id,
+                    "conversation_id": chunk_conversation_id
+                }
+            })))
+
+            # Wait for all chat messages to be sent
+            await asyncio.gather(*chat_tasks)
+
+            # Verify responses for both users
+            response = await ws_user1.receive_json()
+            assert response["type"] == "conversation.message.send.completed"
+            assert "message" in response["data"]
+
+            response = await ws_user2.receive_json()
+            assert response["type"] == "conversation.message.send.completed"
+            assert "message" in response["data"]
+
+            # Generate questions concurrently for both conversations
+            question_tasks = []
+            
+            # User 1: Generate questions for main conversation
+            question_tasks.append(asyncio.create_task(ws_user1.send_json({
+                "type": "conversation.questions.generate",
+                "data": {
+                    "document_id": document_id,
+                    "conversation_id": main_conversation_id
+                }
+            })))
+            
+            # User 2: Generate questions for chunk conversation
+            question_tasks.append(asyncio.create_task(ws_user2.send_json({
+                "type": "conversation.questions.generate",
+                "data": {
+                    "document_id": document_id,
+                    "conversation_id": chunk_conversation_id
+                }
+            })))
+
+            # Wait for question generation to complete
+            await asyncio.gather(*question_tasks)
+
+            # Verify question generation responses
+            response = await ws_user1.receive_json()
+            assert response["type"] == "conversation.questions.generate.completed"
+
+            response = await ws_user2.receive_json()
+            assert response["type"] == "conversation.questions.generate.completed"
+
+            # Finally, merge the conversations
+            await ws_user1.send_json({
+                "type": "conversation.chunk.merge",
+                "data": {
+                    "document_id": document_id,
+                    "conversation_ids": [chunk_conversation_id]
+                }
+            })
+
+            response = await ws_user1.receive_json()
+            assert response["type"] == "conversation.chunk.merge.completed"

@@ -70,8 +70,20 @@ class Message(Base):
     role = Column(String)
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+    meta_data = Column(JSON, nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
+
+    def to_dict(self):
+        """Convert message to dictionary"""
+        return {
+            "id": self.id,
+            "conversation_id": self.conversation_id,
+            "role": self.role,
+            "content": self.content,
+            "created_at": self.created_at.isoformat(),
+            "meta_data": self.meta_data
+        }
 
 class Question(Base):
     __tablename__ = 'questions'
@@ -85,3 +97,14 @@ class Question(Base):
 
     # Relationship to conversation
     conversation = relationship("Conversation", back_populates="questions")
+
+    def to_dict(self):
+        """Convert question to dictionary"""
+        return {
+            "id": self.id,
+            "conversation_id": self.conversation_id,
+            "content": self.content,
+            "created_at": self.created_at.isoformat(),
+            "answered": self.answered,
+            "meta_data": self.meta_data
+        }

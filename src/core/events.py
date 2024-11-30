@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import asyncio
-from typing import Dict, List, Callable, Awaitable, Any
+from typing import Dict, List, Callable, Awaitable, Any, Optional
 import json
 from ..core.logging import setup_logger
 from collections import defaultdict
@@ -12,14 +12,18 @@ class Event:
     type: str
     document_id: str
     data: Dict[str, Any]
+    connection_id: Optional[str] = None
 
     def dict(self):
         """Convert Event to a dictionary."""
-        return {
+        result = {
             "type": self.type,
             "document_id": self.document_id,
             "data": self.data
         }
+        if self.connection_id:
+            result["connection_id"] = self.connection_id
+        return result
 
 class EventBus:
     def __init__(self):

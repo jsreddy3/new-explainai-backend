@@ -281,7 +281,12 @@ class ConversationService:
                 context["chunk"] = chunk_info
                 context["highlighted_text"] = chunk_info.get("highlighted_text", "")
 
-            questions = await self.ai_service.generate_questions(context, count)
+            questions = await self.ai_service.generate_questions(
+                document_id=context["document_id"],
+                conversation_id=conversation_id,
+                context=context,
+                count=count
+            )
             stored_questions = await self.store_generated_questions(conversation_id, questions, context)
             return stored_questions
 
@@ -365,13 +370,18 @@ class ConversationService:
             ]
 
             # Get AI response
-            async for token in self.generate_ai_response(conversation_id):
-                pass
+            full_response = ""
+            async for token in self.ai_service.chat(
+                document_id=conversation.document_id,
+                conversation_id=conversation_id,
+                messages=ai_messages
+            ):
+                full_response += token
 
             # Add AI message
             ai_message = await self.add_message(
                 conversation_id=conversation_id,
-                content=token,
+                content=full_response,
                 role='assistant'
             )
             return ai_message
@@ -466,8 +476,8 @@ class ConversationService:
             conversation = await self.create_chunk_conversation(
                 event.document_id,
                 event.data["chunk_id"],
-                event.data["highlight_range"],
-                event.data["highlighted_text"]
+                event.data.get("highlight_range"),
+                event.data.get("highlighted_text")
             )
             await event_bus.emit(Event(
                 type="conversation.chunk.create.completed",
@@ -490,7 +500,6 @@ class ConversationService:
             message = await self.send_message(
                 event.data["conversation_id"],
                 event.data["content"],
-                event.data.get("role", "user")
             )
             await event_bus.emit(Event(
                 type="conversation.message.send.completed",
@@ -521,7 +530,7 @@ class ConversationService:
                 type="conversation.questions.generate.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
-                data={"questions": questions}
+                data={"questions": [q.to_dict() for q in questions]}
             ))
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
@@ -543,7 +552,7 @@ class ConversationService:
                 type="conversation.questions.list.completed",
                 conversation_id=event.data["conversation_id"],
                 connection_id=event.connection_id,
-                data={"questions": questions}
+                data={"questions": [q.to_dict() for q in questions]}
             ))
         except Exception as e:
             logger.error(f"Error listing questions: {str(e)}")

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-from sqlalchemy.orm import Session
-from typing import Dict, Optional, Callable, Awaitable
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
 import uuid
@@ -17,18 +17,20 @@ ai_service = AIService()
 router = APIRouter()
 
 class WebSocketHandler:
-    def __init__(self, websocket: WebSocket, document_id: str, db: Session):
+    def __init__(self, websocket: WebSocket, document_id: str, db: AsyncSession):
         self.websocket = websocket
         self.document_id = document_id
         self.db = db
         self.conversation_service = ConversationService(db)
         self.queue = asyncio.Queue()
         self.connection_id = None
+        self.task = None
         self.event_types = [
             # Creation events
             "conversation.main.create.completed", "conversation.main.create.error",
             "conversation.chunk.create.completed", "conversation.chunk.create.error",
-
+            "conversation.chunk.merge.completed", "conversation.chunk.merge.error",
+            
             # Message events
             "conversation.message.send.completed", "conversation.message.send.error",
 
@@ -63,9 +65,21 @@ class WebSocketHandler:
             await manager.register_listener(self.connection_id, event_type)
         
         # Start a background task to process events
-        asyncio.create_task(self.process_events())
+        self.task = asyncio.create_task(self.process_events())
         
         return self.connection_id
+
+    async def cleanup(self):
+        """Cleanup resources when connection is closed"""
+        if self.task and not self.task.done():
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
+        
+        if self.connection_id:
+            await manager.disconnect(self.connection_id, self.document_id, "conversation")
 
     async def process_events(self):
         """Process events received from the WebSocket manager"""
@@ -102,11 +116,11 @@ class WebSocketHandler:
     async def handle_create_chunk_conversation(self, data: Dict):
         """Handle chunk conversation creation request"""
         chunk_id = data.get("chunk_id")
-        highlight_range = data.get("highlight_range")
-        highlighted_text = data.get("highlighted_text")
+        highlight_range = data.get("highlight_range", {})
+        highlighted_text = data.get("highlighted_text", "")
 
-        if not all([chunk_id, highlight_range, highlighted_text]):
-            await self.websocket.send_json({"error": "Missing required parameters"})
+        if not chunk_id:
+            await self.websocket.send_json({"error": "Missing chunk_id"})
             return
 
         await event_bus.emit(Event(
@@ -205,49 +219,67 @@ class WebSocketHandler:
             }
         ))
 
+    async def handle_create_main_conversation(self, data: Dict):
+        """Handle request to create main conversation"""
+        await event_bus.emit(Event(
+            type="conversation.main.create.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={
+                "document_id": self.document_id,
+                "chunk_id": data.get("chunk_id")
+            }
+        ))
+
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message using match-case"""
-        action = message.get("action")
+        msg_type = message.get("type")
         data = message.get("data", {})
 
-        match action:
-            case "create_conversation":
-                await self.handle_create_conversation(data)
-            case "create_chunk_conversation":
+        match msg_type:
+            case "conversation.main.create":
+                await self.handle_create_main_conversation(data)
+            case "conversation.chunk.create":
                 await self.handle_create_chunk_conversation(data)
-            case "send_message":
+            case "conversation.chunk.merge":
+                await self.handle_merge_chunk_conversations(data)
+            case "conversation.message.send":
                 await self.handle_send_message(data)
-            case "generate_questions":
-                await self.handle_generate_questions(data)
-            case "list_conversations":
+            case "conversation.list":
                 await self.handle_list_conversations(data)
-            case "list_messages":
-                await self.handle_list_messages(data)
-            case "merge_conversations":
-                await self.handle_merge_conversations(data)
+            case "conversation.questions.generate":
+                await self.handle_generate_questions(data)
             case _:
-                await self.websocket.send_json({"error": f"Unknown action: {action}"})
+                await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
                 
-@router.websocket("/stream/{document_id}")
-async def conversation_stream(websocket: WebSocket, document_id: str, db: Session = Depends(get_db)):
+@router.websocket("/conversations/stream/{document_id}")
+async def conversation_stream(
+    websocket: WebSocket,
+    document_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Stream conversation events via WebSocket
+    
+    Handles conversation-related events including:
+    - Creation events
+    - Message events
+    - List events
+    - Question generation events
+    - Merge events
+    
+    Args:
+        websocket (WebSocket): The WebSocket connection
+        document_id (str): The ID of the document to stream events for
+        db (AsyncSession): Database session
+    """
     handler = WebSocketHandler(websocket, document_id, db)
-    connection_id = None
-
+    
     try:
         connection_id = await handler.connect()
-        
         while True:
-            try:
-                message = await websocket.receive_json()
-                await handler.process_message(message)
-            except WebSocketDisconnect:
-                break
-            except json.JSONDecodeError:
-                await websocket.send_json({"error": "Invalid JSON message"})
-            except Exception as e:
-                await websocket.send_json({"error": str(e)})
-                break
-
+            message = await websocket.receive_json()
+            await handler.process_message(message)
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
-        if connection_id:
-            await manager.disconnect(connection_id, document_id, scope="conversation")
+        await handler.cleanup()

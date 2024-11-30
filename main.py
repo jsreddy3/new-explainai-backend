@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 from contextlib import asynccontextmanager
 from src.core.config import settings
 from src.core.logging import setup_logger
@@ -107,8 +107,12 @@ class CreateConversationRequest(BaseModel):
     highlight_text: Optional[str] = None
 
 @app.post("/api/legacy/conversations")
-async def create_conversation(request: CreateConversationRequest):
-    """Legacy endpoint for backward compatibility"""
+async def create_conversation(request: CreateConversationRequest) -> Dict[str, str]:
+    """Legacy endpoint for backward compatibility
+    
+    Returns:
+        Dict[str, str]: Dictionary containing the conversation ID
+    """
     try:
         conversation_service = ConversationService()
         if request.type == "main":
@@ -126,18 +130,22 @@ async def create_conversation(request: CreateConversationRequest):
 
 # Health check endpoint
 @app.get("/health")
-async def health_check():
+async def health_check() -> Dict[str, str]:
+    """Health check endpoint
+    
+    Returns:
+        Dict[str, str]: Dictionary containing the service status
+    """
     return {"status": "healthy"}
 
-# After setting up your app and including all routers, but before the if __name__ == "__main__" block:
-# print("\nDetailed Route Information:")
-# for route in app.routes:
-#     if hasattr(route, "path"):
-#         route_type = "WebSocket" if str(route.__class__).find("WebSocket") != -1 else "HTTP"
-#         methods = getattr(route, "methods", None)
-#         if methods:
-#             methods = ", ".join(methods)
-#         print(f"{route_type}: {route.path} {f'[{methods}]' if methods else ''}")
+print("\nDetailed Route Information:")
+for route in app.routes:
+    if hasattr(route, "path"):
+        route_type = "WebSocket" if str(route.__class__).find("WebSocket") != -1 else "HTTP"
+        methods = getattr(route, "methods", None)
+        if methods:
+            methods = ", ".join(methods)
+        print(f"{route_type}: {route.path} {f'[{methods}]' if methods else ''}")
 
 # Keep your if __name__ == "__main__" block for direct python execution
 if __name__ == "__main__":

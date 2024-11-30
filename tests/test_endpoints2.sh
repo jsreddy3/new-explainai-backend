@@ -41,11 +41,15 @@ DOC_RESPONSE=$(curl -s -X GET "$BASE_URL/documents/$DOCUMENT_ID" \
 CHUNK_ID=$(echo "$DOC_RESPONSE" | jq -r '.chunks[0].id')
 echo "First chunk ID: $CHUNK_ID"
 
+# Get highlighted text and escape it for JSON
+HIGHLIGHT1=$(echo "$DOC_RESPONSE" | jq -r '.chunks[0].content' | cut -c1-100 | jq -R -s '.')
+HIGHLIGHT2=$(echo "$DOC_RESPONSE" | jq -r '.chunks[0].content' | cut -c101-200 | jq -R -s '.')
+
 # 3. Create chunk conversation
 echo -e "\n3. Creating chunk conversation..."
 CHUNK_CONV_RESPONSE=$(curl -s -X POST "$BASE_URL/documents/$DOCUMENT_ID/conversations/chunk" \
   -H "Content-Type: application/json" \
-  -d "{\"chunk_id\": \"$CHUNK_ID\", \"highlight_range\": [0, 100]}")
+  -d "{\"chunk_id\": \"$CHUNK_ID\", \"highlight_range\": [0, 100], \"highlighted_text\": $HIGHLIGHT1}")
 
 echo "Chunk conversation response: $CHUNK_CONV_RESPONSE"
 if handle_response "$CHUNK_CONV_RESPONSE"; then
@@ -73,7 +77,7 @@ done
 echo -e "\n5. Creating another chunk conversation with different range..."
 CHUNK_CONV_RESPONSE2=$(curl -s -X POST "$BASE_URL/documents/$DOCUMENT_ID/conversations/chunk" \
   -H "Content-Type: application/json" \
-  -d "{\"chunk_id\": \"$CHUNK_ID\", \"highlight_range\": [100, 200]}")
+  -d "{\"chunk_id\": \"$CHUNK_ID\", \"highlight_range\": [100, 200], \"highlighted_text\": $HIGHLIGHT2}")
 
 echo "Second chunk conversation response: $CHUNK_CONV_RESPONSE2"
 if handle_response "$CHUNK_CONV_RESPONSE2"; then

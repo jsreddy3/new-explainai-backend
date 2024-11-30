@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text
+from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.sqlite import JSON
 from datetime import datetime
@@ -45,25 +45,43 @@ class DocumentChunk(Base):
 
 class Conversation(Base):
     __tablename__ = 'conversations'
+    
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     document_id = Column(String, ForeignKey('documents.id'))
     chunk_id = Column(String, ForeignKey('document_chunks.id'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    meta_data = Column(JSON)  # Changed from metadata to meta_data
-    
-    # Relationships
+    meta_data = Column(JSON)
+
+    # Existing relationships
     document = relationship("Document", back_populates="main_conversation",
                           foreign_keys=[document_id])
     chunk = relationship("DocumentChunk", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation")
+    
+    # Add new relationship for questions
+    questions = relationship("Question", back_populates="conversation")
+
 
 class Message(Base):
     __tablename__ = 'messages'
+    
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     conversation_id = Column(String, ForeignKey('conversations.id'))
     role = Column(String)
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relationships
+
     conversation = relationship("Conversation", back_populates="messages")
+
+class Question(Base):
+    __tablename__ = 'questions'
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    conversation_id = Column(String, ForeignKey('conversations.id'))
+    content = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    answered = Column(Boolean, default=False)
+    meta_data = Column(JSON, nullable=True)
+
+    # Relationship to conversation
+    conversation = relationship("Conversation", back_populates="questions")

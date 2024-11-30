@@ -1,4 +1,5 @@
 # backend/main.py
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -7,7 +8,10 @@ from typing import Optional
 from contextlib import asynccontextmanager
 from src.core.config import settings
 from src.core.logging import setup_logger
-from src.db.session import init_db
+from src.db.session import init_db, AsyncSessionLocal
+from src.services.conversation import ConversationService
+from src.services.document import DocumentService
+from src.core.events import event_bus
 
 # Import routes
 from src.api.routes import document, conversation, signup
@@ -19,8 +23,22 @@ logger = setup_logger(__name__)
 async def lifespan(app: FastAPI):
     """Lifespan events handler"""
     try:
+        logger.info("Initializing application...")
+        
+        # Initialize event bus
+        event_bus.initialize()
+        
         logger.info("Initializing database...")
         await init_db()
+        
+        # Initialize global services and listeners
+        async with AsyncSessionLocal() as db:
+            conversation_service = ConversationService(db)
+            document_service = DocumentService(db)
+            
+            # Initialize service listeners
+            await conversation_service.initialize_listeners()
+            await document_service.initialize_listeners()
         
         # Verify required settings
         required_settings = [
@@ -56,6 +74,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
         raise
+    finally:
+        # Shutdown event bus
+        await event_bus.shutdown()
 
 # Create FastAPI app
 app = FastAPI(
@@ -108,6 +129,17 @@ async def create_conversation(request: CreateConversationRequest):
 async def health_check():
     return {"status": "healthy"}
 
+# After setting up your app and including all routers, but before the if __name__ == "__main__" block:
+# print("\nDetailed Route Information:")
+# for route in app.routes:
+#     if hasattr(route, "path"):
+#         route_type = "WebSocket" if str(route.__class__).find("WebSocket") != -1 else "HTTP"
+#         methods = getattr(route, "methods", None)
+#         if methods:
+#             methods = ", ".join(methods)
+#         print(f"{route_type}: {route.path} {f'[{methods}]' if methods else ''}")
+
+# Keep your if __name__ == "__main__" block for direct python execution
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

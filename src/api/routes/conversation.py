@@ -1,241 +1,253 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
-from typing import Dict, List, Optional
-from pydantic import BaseModel
-from fastapi.responses import StreamingResponse
+from typing import Dict, Optional, Callable, Awaitable
+import asyncio
 import json
+import uuid
 
 from src.db.session import get_db
 from src.services.conversation import ConversationService
 from src.services.ai import AIService
+from src.core.events import event_bus, Event
+from src.core.websocket_manager import manager
 from src.core.logging import setup_logger
 
 logger = setup_logger(__name__)
 ai_service = AIService()
 router = APIRouter()
 
-class MessageCreate(BaseModel):
-    content: str
-    role: str = "user"
-    context: Optional[Dict] = None
+class WebSocketHandler:
+    def __init__(self, websocket: WebSocket, document_id: str, db: Session):
+        self.websocket = websocket
+        self.document_id = document_id
+        self.db = db
+        self.conversation_service = ConversationService(db)
+        self.queue = asyncio.Queue()
+        self.connection_id = None
+        self.event_types = [
+            # Creation events
+            "conversation.main.create.completed", "conversation.main.create.error",
+            "conversation.chunk.create.completed", "conversation.chunk.create.error",
 
-class ConversationCreate(BaseModel):
-    chunk_id: Optional[str] = None
-    highlight_range: Optional[tuple[int, int]] = None
+            # Message events
+            "conversation.message.send.completed", "conversation.message.send.error",
 
-class QuestionGenerate(BaseModel):
-    count: int = 3
-    previous_questions: List[str] = []
-    context: Optional[Dict] = None
+            # List events
+            "conversation.list.completed", "conversation.list.error",
+            "conversation.chunk.list.completed", "conversation.chunk.list.error",
+            "conversation.messages.completed", "conversation.messages.error",
 
-class MessageRequest(BaseModel):
-    content: str
-    role: str = "user"
-
-class QuestionRequest(BaseModel):
-    count: int = 3
-
-class ChunkConversationRequest(BaseModel):
-    chunk_id: str
-    highlight_range: tuple[int, int]
-    highlighted_text: str
-
-class ChunkConversationRequest(BaseModel):
-    chunk_id: str
-    highlight_range: tuple[int, int]
-    highlighted_text: str
-
-async def stream_response(generator):
-    """Stream AI responses"""
-    try:
-        async for chunk in generator:
-            if chunk:
-                yield f"data: {json.dumps({'content': chunk})}\n\n"
-        yield "data: [DONE]\n\n"
-    except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-@router.post("/documents/{document_id}/conversations")
-async def create_conversation(
-    document_id: str,
-    db: Session = Depends(get_db)
-) -> Dict:
-    """Create a new main conversation for a document"""
-    try:
-        conversation_service = ConversationService(db)
-        conversation = await conversation_service.create_main_conversation(document_id)
-        
-        return {
-            "id": conversation.id,
-            "document_id": conversation.document_id,
-            "created_at": conversation.created_at,
-            "meta_data": conversation.meta_data
-        }
-        
-    except Exception as e:
-        logger.error(f"Error creating conversation: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/documents/{document_id}/conversations/chunk")
-async def create_chunk_conversation(
-    document_id: str,
-    request: ChunkConversationRequest,
-    db: Session = Depends(get_db)
-) -> Dict:
-    """Create a new conversation for a specific document chunk"""
-    try:
-        conversation_service = ConversationService(db)
-        conversation = await conversation_service.create_chunk_conversation(
-            document_id=document_id,
-            chunk_id=request.chunk_id,
-            highlight_range=request.highlight_range,
-            highlighted_text=request.highlighted_text
-        )
-        
-        return {
-            "id": conversation.id,
-            "document_id": conversation.document_id,
-            "chunk_id": conversation.chunk_id,
-            "created_at": conversation.created_at,
-            "meta_data": conversation.meta_data
-        }
-        
-    except Exception as e:
-        logger.error(f"Error creating chunk conversation: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/conversations/{conversation_id}/messages")
-async def add_message(
-    conversation_id: str,
-    message: MessageCreate,
-    db: Session = Depends(get_db)
-) -> Dict:
-    """Add a message to a conversation"""
-    conversation_service = ConversationService(db)
-    
-    try:
-        new_message = await conversation_service.add_message(
-            conversation_id=conversation_id,
-            content=message.content,
-            role=message.role
-        )
-        
-        return {
-            "id": new_message.id,
-            "conversation_id": new_message.conversation_id,
-            "content": new_message.content,
-            "role": new_message.role,
-            "created_at": new_message.created_at
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/conversations/{conversation_id}/messages")
-async def get_messages(
-    conversation_id: str,
-    limit: int = 50,
-    offset: int = 0,
-    db: Session = Depends(get_db)
-) -> List[Dict]:
-    """Get messages for a conversation"""
-    conversation_service = ConversationService(db)
-    
-    try:
-        messages = await conversation_service.get_conversation_messages(
-            conversation_id=conversation_id,
-            limit=limit,
-            offset=offset
-        )
-        
-        return [
-            {
-                "id": msg.id,
-                "content": msg.content,
-                "role": msg.role,
-                "created_at": msg.created_at
-            }
-            for msg in messages
+            # Question events
+            "conversation.questions.generate.completed", "conversation.questions.generate.error",
+            "conversation.questions.list.completed", "conversation.questions.list.error",
+            
+            # Merge events
+            "conversation.merge.completed", "conversation.merge.error"
         ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/documents/{document_id}/conversations")
-async def get_document_conversations(
-    document_id: str,
-    db: Session = Depends(get_db)
-) -> Dict[str, List[Dict]]:
-    """Get all conversations for a document"""
-    conversation_service = ConversationService(db)
-    
-    try:
-        conversations = await conversation_service.get_document_conversations(document_id)
+    async def connect(self):
+        """Establish WebSocket connection and set up event listeners"""
+        # Generate a unique connection ID
+        self.connection_id = str(uuid.uuid4())
         
-        def format_conversation(conv):
-            return {
-                "id": conv.id,
-                "created_at": conv.created_at,
-                "meta_data": conv.meta_data
+        # Register with the WebSocket manager, which now handles event queuing
+        await manager.connect(
+            connection_id=self.connection_id,
+            document_id=self.document_id,
+            scope="conversation",
+            websocket=self.websocket
+        )
+        
+        # Register which event types this connection cares about
+        for event_type in self.event_types:
+            await manager.register_listener(self.connection_id, event_type)
+        
+        # Start a background task to process events
+        asyncio.create_task(self.process_events())
+        
+        return self.connection_id
+
+    async def process_events(self):
+        """Process events received from the WebSocket manager"""
+        try:
+            while True:
+                event = await manager.get_events(self.connection_id)
+                try:
+                    await self.handle_event(event)
+                except Exception as e:
+                    logger.error(f"Error processing event {event.type}: {e}")
+        except asyncio.CancelledError:
+            pass
+
+    async def handle_event(self, event: Event):
+        """Handle different types of events"""
+        try:
+            # Send the event data to the WebSocket client
+            await self.websocket.send_json({
+                "type": event.type,
+                "data": event.data
+            })
+        except Exception as e:
+            logger.error(f"Failed to send event to WebSocket: {e}")
+
+    async def handle_create_conversation(self, data: Dict):
+        """Handle conversation creation request"""
+        await event_bus.emit(Event(
+            type="conversation.main.create.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={"document_id": self.document_id}
+        ))
+
+    async def handle_create_chunk_conversation(self, data: Dict):
+        """Handle chunk conversation creation request"""
+        chunk_id = data.get("chunk_id")
+        highlight_range = data.get("highlight_range")
+        highlighted_text = data.get("highlighted_text")
+
+        if not all([chunk_id, highlight_range, highlighted_text]):
+            await self.websocket.send_json({"error": "Missing required parameters"})
+            return
+
+        await event_bus.emit(Event(
+            type="conversation.chunk.create.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={
+                "chunk_id": chunk_id,
+                "highlight_range": highlight_range,
+                "highlighted_text": highlighted_text
             }
-        
-        return {
-            "main": [format_conversation(c) for c in conversations["main"]],
-            "chunks": [format_conversation(c) for c in conversations["chunks"]]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        ))
 
-@router.post("/conversations/{conversation_id}/chat")
-async def chat(
-    conversation_id: str,
-    request: MessageRequest,
-    db: Session = Depends(get_db)
-):
-    """Chat with the document context"""
-    try:
-        conversation_service = ConversationService(db)
-        ai_service = AIService()
-        
-        # Get conversation context
-        context = await conversation_service.get_chat_context(conversation_id)
-        
-        # Add user message
-        await conversation_service.add_message(
-            conversation_id=conversation_id,
-            content=request.content,
-            role=request.role
-        )
-        
-        # Get AI response
-        async def generate_response():
-            async for token in ai_service.stream_chat(
-                messages=[{"role": request.role, "content": request.content}],
-                context=context
-            ):
-                yield f"data: {token}\n\n"
+    async def handle_send_message(self, data: Dict):
+        """Handle message sending request"""
+        conversation_id = data.get("conversation_id")
+        content = data.get("content")
+        role = data.get("role", "user")
+
+        if not all([conversation_id, content]):
+            await self.websocket.send_json({"error": "Missing conversation_id or content"})
+            return
+
+        await event_bus.emit(Event(
+            type="conversation.message.send.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={
+                "conversation_id": conversation_id,
+                "content": content,
+                "role": role
+            }
+        ))
+
+    async def handle_generate_questions(self, data: Dict):
+        """Handle question generation request"""
+        conversation_id = data.get("conversation_id")
+        count = data.get("count", 3)
+
+        if not conversation_id:
+            await self.websocket.send_json({"error": "Missing conversation_id"})
+            return
+
+        await event_bus.emit(Event(
+            type="conversation.questions.generate.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={
+                "conversation_id": conversation_id,
+                "count": count
+            }
+        ))
+
+    async def handle_list_conversations(self, data: Dict):
+        """Handle conversations list request"""
+        await event_bus.emit(Event(
+            type="conversation.list.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={}
+        ))
+
+    async def handle_list_messages(self, data: Dict):
+        """Handle messages list request"""
+        conversation_id = data.get("conversation_id")
+
+        if not conversation_id:
+            await self.websocket.send_json({"error": "Missing conversation_id"})
+            return
+
+        await event_bus.emit(Event(
+            type="conversation.messages.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={
+                "conversation_id": conversation_id
+            }
+        ))
+
+    async def handle_merge_conversations(self, data: Dict):
+        """Handle conversation merge request"""
+        main_conversation_id = data.get("main_conversation_id")
+        highlight_conversation_id = data.get("highlight_conversation_id")
+
+        if not all([main_conversation_id, highlight_conversation_id]):
+            await self.websocket.send_json({"error": "Missing main_conversation_id or highlight_conversation_id"})
+            return
+
+        await event_bus.emit(Event(
+            type="conversation.merge.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={
+                "main_conversation_id": main_conversation_id,
+                "highlight_conversation_id": highlight_conversation_id
+            }
+        ))
+
+    async def process_message(self, message: Dict):
+        """Process incoming WebSocket message using match-case"""
+        action = message.get("action")
+        data = message.get("data", {})
+
+        match action:
+            case "create_conversation":
+                await self.handle_create_conversation(data)
+            case "create_chunk_conversation":
+                await self.handle_create_chunk_conversation(data)
+            case "send_message":
+                await self.handle_send_message(data)
+            case "generate_questions":
+                await self.handle_generate_questions(data)
+            case "list_conversations":
+                await self.handle_list_conversations(data)
+            case "list_messages":
+                await self.handle_list_messages(data)
+            case "merge_conversations":
+                await self.handle_merge_conversations(data)
+            case _:
+                await self.websocket.send_json({"error": f"Unknown action: {action}"})
                 
-        return StreamingResponse(
-            generate_response(),
-            media_type="text/event-stream"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in chat: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+@router.websocket("/stream/{document_id}")
+async def conversation_stream(websocket: WebSocket, document_id: str, db: Session = Depends(get_db)):
+    handler = WebSocketHandler(websocket, document_id, db)
+    connection_id = None
 
-@router.post("/conversations/{conversation_id}/questions")
-async def generate_questions(
-    conversation_id: str,
-    request: QuestionRequest,
-    db: Session = Depends(get_db)
-) -> List[str]:
-    """Generate questions about the document"""
     try:
-        conversation_service = ConversationService(db)
-        questions = await conversation_service.generate_questions(
-            conversation_id=conversation_id,
-            count=request.count
-        )
-        return questions
-    except Exception as e:
-        logger.error(f"Error generating questions: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        connection_id = await handler.connect()
+        
+        while True:
+            try:
+                message = await websocket.receive_json()
+                await handler.process_message(message)
+            except WebSocketDisconnect:
+                break
+            except json.JSONDecodeError:
+                await websocket.send_json({"error": "Invalid JSON message"})
+            except Exception as e:
+                await websocket.send_json({"error": str(e)})
+                break
+
+    finally:
+        if connection_id:
+            await manager.disconnect(connection_id, document_id, scope="conversation")

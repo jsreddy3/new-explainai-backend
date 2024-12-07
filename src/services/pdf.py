@@ -1,16 +1,16 @@
 from fastapi import UploadFile, File, HTTPException
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 import litellm
 from tempfile import NamedTemporaryFile
 from pathlib import Path
 from datetime import datetime
 import time
 from pydantic import BaseModel
-from llama_parse import LlamaParse
 import PyPDF2
 import logging
 import nest_asyncio
+import yaml
 
 from src.core.config import Settings
 from src.core.logging import setup_logger, log_with_context
@@ -23,7 +23,7 @@ settings = Settings()
 
 # Constants
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-CHUNK_SIZE = 2500  # Reduced from 50000 to 2500 characters
+CHUNK_SIZE = 5000  # Characters per chunk
 LOG_TRUNCATION_LENGTH = 500  # For truncating long log messages
 
 # System prompt for PDF processing
@@ -32,7 +32,9 @@ Your task is to:
 1. Understand and extract key information from the document
 2. Maintain the original meaning while improving readability
 3. Organize the content in a clear, structured format
-4. Preserve important technical details and terminology"""
+4. Preserve important technical details and terminology
+5. Break down complex paragraphs into more digestible units
+6. Ensure the text flows naturally between processed chunks"""
 
 class PDFResponse(BaseModel):
     success: bool
@@ -43,10 +45,6 @@ class PDFResponse(BaseModel):
 
 class PDFService:
     def __init__(self):
-        self.llama_parse = LlamaParse(
-            api_key=settings.LLAMA_CLOUD_API_KEY,
-            result_type="markdown"  # Use markdown to preserve structure
-        )
         self.max_file_size = MAX_FILE_SIZE
         
     async def validate_pdf_file(self, file: UploadFile) -> None:
@@ -64,20 +62,21 @@ class PDFService:
         """Clean and standardize LLM output"""
         return text.strip()
 
-    async def process_chunk(self, chunk: str, chunk_num: int) -> str:
+    def chunk_text(self, text: str, chunk_size: int = CHUNK_SIZE) -> List[str]:
+        """Split text into manageable chunks"""
+        return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+    async def process_chunk(self, chunk: str, chunk_num: int, previous_messages: List[Dict[str, str]] = None) -> Tuple[str, List[Dict[str, str]]]:
         """Process a single chunk of text using LiteLLM"""
         try:
             start_time = time.time()
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Process this document chunk (#{chunk_num}): {chunk}"}
-            ]
+            messages = previous_messages or [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages.append({"role": "user", "content": chunk})
             
-            # logger.info(f"Processing chunk {chunk_num}", extra={
-            #     "chunk_number": chunk_num,
-            #     "chunk_length": len(chunk)
-            # })
-            # logger.debug(f"Chunk content (truncated): {chunk[:LOG_TRUNCATION_LENGTH]}")
+            logger.info(f"Processing chunk {chunk_num}", extra={
+                "chunk_number": chunk_num,
+                "chunk_length": len(chunk)
+            })
             
             response = await litellm.acompletion(
                 model="gemini/gemini-1.5-flash",
@@ -86,205 +85,139 @@ class PDFService:
             
             process_time = time.time() - start_time
             processed_text = response.choices[0].message.content
-            # logger.debug(f"Processed chunk {chunk_num} (truncated): {processed_text[:LOG_TRUNCATION_LENGTH]}", extra={
-            #     "processing_time_seconds": process_time
-            # })
             
-            return self.clean_llm_output(processed_text)
+            # Add assistant's response to conversation history
+            messages.append({"role": "assistant", "content": processed_text})
+            
+            return self.clean_llm_output(processed_text), messages
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}", extra={
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "chunk_number": chunk_num
             })
-            raise HTTPException(status_code=500, detail=f"Error processing document chunk: {str(e)}")
+            return chunk, messages  # Fallback to original text if processing fails
 
-    def chunk_text(self, text: str) -> List[str]:
-        """Split text into manageable chunks"""
+    async def extract_text_from_pdf(self, file: UploadFile, max_pages: int = 50) -> Tuple[str, str]:
+        """Extract text and title from PDF file"""
         try:
-            start_time = time.time()
-            # logger.info(f"Splitting text of length {len(text)} into chunks of size {CHUNK_SIZE}")
-            chunks = [text[i:i + CHUNK_SIZE] for i in range(0, len(text), CHUNK_SIZE)]
-            split_time = time.time() - start_time
-            # logger.info(f"Created {len(chunks)} chunks", extra={
-            #     "chunk_count": len(chunks),
-            #     "splitting_time_seconds": split_time
-            # })
-            # for i, chunk in enumerate(chunks):
-            #     logger.debug(f"Chunk {i+1} length: {len(chunk)}", extra={
-            #         "chunk_number": i+1,
-            #         "chunk_length": len(chunk)
-            #     })
-            #     logger.debug(f"Chunk {i+1} preview: {chunk[:100]}...", extra={
-            #         "chunk_number": i+1,
-            #         "preview": chunk[:100] + "..."
-            #     })
-            return chunks
-        except Exception as e:
-            logger.error("Error splitting text", extra={
-                "error_type": type(e).__name__,
-                "error_message": str(e)
-            })
-            raise
-
-    async def process_pdf_text(self, text: str) -> tuple[str, List[str]]:
-        """Process PDF text in chunks"""
-        try:
-            start_time = time.time()
-            chunks = self.chunk_text(text)
-            processed_chunks = []
+            # Get the original filename from UploadFile
+            filename = file.filename.replace('.pdf', '')
             
-            # logger.info(f"Starting to process {len(chunks)} chunks")
-            for i, chunk in enumerate(chunks):
-                # logger.info(f"Processing chunk {i+1}/{len(chunks)} (length: {len(chunk)})", extra={
-                #     "chunk_number": i+1,
-                #     "chunk_length": len(chunk)
-                # })
-                # logger.debug(f"Raw chunk {i+1}: {chunk[:LOG_TRUNCATION_LENGTH]}...", extra={
-                #     "chunk_number": i+1,
-                #     "raw_chunk": chunk[:LOG_TRUNCATION_LENGTH] + "..."
-                # })
-                processed_chunk = await self.process_chunk(chunk, i + 1)
-                # logger.debug(f"Processed chunk {i+1}: {processed_chunk[:LOG_TRUNCATION_LENGTH]}", extra={
-                #     "chunk_number": i+1,
-                #     "processed_chunk": processed_chunk[:LOG_TRUNCATION_LENGTH] + "..."
-                # })
-                processed_chunks.append(processed_chunk)
+            # Read PDF using the file object
+            pdf_reader = PyPDF2.PdfReader(file.file)
             
-            full_text = "\n".join(processed_chunks)
-            total_time = time.time() - start_time
-            # logger.info(f"Finished processing all chunks. Total processed text length: {len(full_text)}", extra={
-            #     "total_chunks": len(chunks),
-            #     "total_text_length": len(full_text),
-            #     "total_processing_time_seconds": total_time,
-            #     "average_chunk_time_seconds": total_time / len(chunks)
-            # })
-            return full_text, processed_chunks
-        except Exception as e:
-            logger.error("Error processing PDF text", extra={
-                "error_type": type(e).__name__,
-                "error_message": str(e)
-            })
-            raise
-
-    async def extract_text_from_pdf(self, content: bytes) -> tuple[str, str]:
-        """Extract text and title from PDF using llama-parse with PyPDF2 fallback"""
-        try:
-            start_time = time.time()
-            with NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-                temp_file.write(content)
-                temp_file.flush()
+            # Try to get title from metadata, fallback to filename
+            title = (
+                pdf_reader.metadata.get('/Title', '') if pdf_reader.metadata
+                else filename
+            )
+            
+            # If title is empty or an IndirectObject, use filename
+            if not title or 'IndirectObject' in str(title):
+                title = filename
                 
-                try:
-                    # logger.info(f"Starting PDF text extraction with LlamaParse", extra={
-                    #     "file_path": temp_file.name
-                    # })
-                    
-                    # First try with LlamaParse
-                    extraction_start = time.time()
-                    result = self.llama_parse.load_data(temp_file.name)
-                    extraction_time = time.time() - extraction_start
-                    
-                    if not result or not result[0].text:
-                        raise ValueError("Failed to extract text from PDF")
-                    
-                    text = result[0].text
-                    title = result[0].metadata.get('title', '') if result else ""
-                    
-                    # Log the extraction results
-                    # logger.info("LlamaParse extraction complete", extra={
-                    #     "text_length": len(text),
-                    #     "extraction_time_seconds": extraction_time
-                    # })
-                    
-                    # Log text preview for debugging
-                    # logger.debug("Extracted text preview", extra={
-                    #     "preview": text[:200] + "..."
-                    # })
-                    
-                    # logger.info("Successfully extracted text from PDF", extra={
-                    #     "file_path": temp_file.name
-                    # })
-                    
-                    return text, title
-                except Exception as e:
-                    logger.warning(f"LlamaParse extraction failed, falling back to PyPDF2", extra={
-                        "error": str(e)
-                    })
-                    with open(temp_file.name, 'rb') as pdf_file:
-                        pdf_reader = PyPDF2.PdfReader(pdf_file)
-                        text = '\n'.join(page.extract_text() for page in pdf_reader.pages)
-                        title = Path(temp_file.name).stem
-                        
-                        if not text.strip():
-                            raise ValueError("No text could be extracted from the PDF")
-                        
-                        logger.info("PyPDF2 extraction complete", extra={
-                            "text_length": len(text)
-                        })
-                        return text, title
-                finally:
-                    os.unlink(temp_file.name)
-        except Exception as e:
-            logger.error("Error extracting text from PDF", extra={
-                "error_type": type(e).__name__,
-                "error_message": str(e)
-            })
-            raise
+            # Extract text from first max_pages pages only
+            if len(pdf_reader.pages) > max_pages:
+                logger.info(f"PDF has {len(pdf_reader.pages)} pages, only processing first {max_pages} pages")
 
-    async def process_pdf(self, file: UploadFile) -> PDFResponse:
-        """Process uploaded PDF file"""
+            text = ""
+            for page in pdf_reader.pages[:max_pages]:
+                text += page.extract_text() + "\n"
+                
+            logger.info(f"Extracted title: {title}")
+            return text.strip(), title.strip()
+
+        except Exception as e:
+            logger.error(f"Error extracting text from PDF: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing PDF: {str(e)}"
+            )
+
+    async def process_pdf_text(self, text: str) -> Tuple[str, List[str]]:
+        """Process PDF text in chunks and return both full text and individual chunks"""
+        chunks = self.chunk_text(text)
+        processed_chunks = []
+        conversation_history = None
+        
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Processing chunk {i+1}/{len(chunks)}")
+            try:
+                processed_chunk, conversation_history = await self.process_chunk(chunk, i, conversation_history)
+                processed_chunks.append(processed_chunk)
+            except Exception as e:
+                logger.error(f"Error processing chunk {i+1}: {str(e)}")
+                processed_chunks.append(chunk)  # Fall back to original chunk if processing fails
+        
+        # Combine all processed chunks
+        full_text = "\n".join(processed_chunks)
+        return full_text, processed_chunks
+
+    async def process_pdf(self, file: UploadFile, max_pages: int = 50) -> PDFResponse:
+        """Process PDF file and return structured response"""
+        await self.validate_pdf_file(file)
+        
         try:
-            start_time = time.time()
-            logger.info(f"Starting PDF processing for file: {file.filename}")
-            
-            await self.validate_pdf_file(file)
-            # logger.info("PDF validation passed")
-            
-            content = await file.read()
-            # logger.info(f"Read PDF content, size: {len(content)} bytes")
-            
             # Extract text and title
-            # logger.info("Extracting text from PDF...")
-            text, title = await self.extract_text_from_pdf(content)
-            # logger.info(f"Successfully extracted text from PDF: {title}", extra={
-            #     "file_name": file.filename,
-            #     "text_length": len(text),
-            #     "text_preview": text[:200] if text else "No text"
-            # })
+            text, title = await self.extract_text_from_pdf(file, max_pages)
             
-            # Process the text and get both full text and chunks
-            # logger.info("Processing extracted text...")
+            # Process the text
             processed_text, chunks = await self.process_pdf_text(text)
-            # logger.info(f"Text processing complete. Generated {len(chunks)} chunks")
-            
-            # Generate a unique topic key
-            topic_key = f"pdf-{os.path.splitext(file.filename)[0]}-{hash(str(processed_text))%10000:04d}"
-            
-            total_time = time.time() - start_time
-            logger.info("Finished processing PDF", extra={
-                "total_time_seconds": total_time,
-                "topic_key": topic_key,
-                "chunks_count": len(chunks)
-            })
             
             return PDFResponse(
                 success=True,
-                topicKey=topic_key,
-                display=os.path.splitext(file.filename)[0],
+                topicKey=f"pdf-{title}-{hash(str(processed_text))%10000:04d}",
+                display=title,
                 text=processed_text,
                 chunks=chunks
             )
+            
         except Exception as e:
-            logger.error("Error processing PDF", extra={
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "traceback": str(e.__traceback__)
-            })
-            return PDFResponse(
-                success=False,
-                topicKey="error",
-                display="Error Processing PDF",
-                text=str(e),
-                chunks=[]
-            )
+            logger.error(f"Error processing PDF: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def process_pdf_stream(self, file: UploadFile, max_pages: int = 50):
+        """Process PDF file and yield chunks as they're processed"""
+        try:
+            await self.validate_pdf_file(file)
+            
+            # Extract text and title
+            text, title = await self.extract_text_from_pdf(file, max_pages)
+            
+            # Split into chunks
+            chunks = self.chunk_text(text)
+            conversation_history = None
+            
+            for i, chunk in enumerate(chunks):
+                try:
+                    # Process chunk
+                    processed_chunk, conversation_history = await self.process_chunk(chunk, i, conversation_history)
+                    
+                    # Yield chunk response
+                    yield {
+                        "success": True,
+                        "topicKey": f"pdf-{title}-{hash(str(processed_chunk))%10000:04d}",
+                        "display": title,
+                        "text": processed_chunk,
+                        "chunk_number": i,
+                        "total_chunks": len(chunks)
+                    }
+                    
+                except Exception as e:
+                    logger.error(f"Error processing chunk {i}: {str(e)}")
+                    yield {
+                        "success": False,
+                        "error": f"Error processing chunk {i}: {str(e)}",
+                        "chunk_number": i,
+                        "total_chunks": len(chunks)
+                    }
+                    
+        except Exception as e:
+            logger.error(f"Error in PDF stream processing: {str(e)}")
+            yield {
+                "success": False,
+                "error": f"Error in PDF stream processing: {str(e)}",
+                "chunk_number": 0,
+                "total_chunks": 0
+            }

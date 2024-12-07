@@ -5,16 +5,13 @@ import logging
 from litellm import acompletion
 from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
-from src.services.document import DocumentService
 
 logger = setup_logger(__name__)
 
 class AIService:
     MODEL = "gpt-4o"
     
-    def __init__(self, db):
-        self.db = db
-        self.document_service = DocumentService(db)
+    def __init__(self):
         logger.info(f"Initialized AIService with model: {self.MODEL}")
         
     async def chat(

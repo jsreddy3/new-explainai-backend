@@ -22,8 +22,7 @@ class WebSocketHandler:
         self.websocket = websocket
         self.document_id = document_id
         self.db = db
-        self.conversation_service = ConversationService()  # Get singleton instance
-        self.conversation_service.update_db(db)  # Update with current db session
+        self.conversation_service = ConversationService(db)
         self.queue = asyncio.Queue()
         self.connection_id = None
         self.task = None

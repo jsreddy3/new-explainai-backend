@@ -2,11 +2,14 @@ from typing import Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
+import asyncio
+from sqlalchemy.orm import sessionmaker
 
 from ..models.database import Document, DocumentChunk
 from ..core.logging import setup_logger
 from ..services.pdf import PDFService
 from ..core.events import Event, event_bus
+from ..db.session import engine
 
 logger = setup_logger(__name__)
 
@@ -21,19 +24,64 @@ class DocumentService:
 
     def __init__(self, db: AsyncSession = None):
         if not self._initialized and db is not None:
-            self.db = db
+            self.AsyncSessionLocal = sessionmaker(
+                engine,
+                class_=AsyncSession,
+                expire_on_commit=False
+            )
             self.pdf_service = PDFService()
-            event_bus.on("document.chunk.list.requested", self.handle_list_chunks)
-            event_bus.on("document.metadata.requested", self.handle_get_metadata)
-            event_bus.on("document.navigation.requested", self.handle_navigate_chunks)
-            event_bus.on("document.processing.requested", self.handle_process_document)
+
+            # Task management
+            self.task_queue = asyncio.Queue()
+            self.active_tasks = set()
+            self.semaphore = asyncio.Semaphore(10)
+            self.shutdown_event = asyncio.Event()
+            
+            # Start processor
+            self.processor_task = asyncio.create_task(self._process_tasks())
+
+            # Register event handlers with queue wrapper
+            event_bus.on("document.chunk.list.requested", self._queue_task(self.handle_list_chunks))
+            event_bus.on("document.metadata.requested", self._queue_task(self.handle_get_metadata))
+            event_bus.on("document.navigation.requested", self._queue_task(self.handle_navigate_chunks))
+            event_bus.on("document.processing.requested", self._queue_task(self.handle_process_document))
 
             self.__class__._initialized = True
 
-    async def handle_list_chunks(self, event: Event):
-        """Handle chunk list request"""
+    def _queue_task(self, handler):
+        async def wrapper(event):
+            if not self.shutdown_event.is_set():
+                await self.task_queue.put((handler, event))
+        return wrapper
+
+    async def _process_tasks(self):
+        while not self.shutdown_event.is_set():
+            try:
+                handler, event = await self.task_queue.get()
+                task = asyncio.create_task(self._run_task(handler, event))
+                self.active_tasks.add(task)
+                task.add_done_callback(self.active_tasks.discard)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Task processor error: {e}")
+
+    async def _run_task(self, handler, event):
         try:
-            chunks = await self.get_document_chunks(event.document_id)
+            async with self.semaphore:
+                async with self.AsyncSessionLocal() as db:
+                    try:
+                        await handler(event, db)
+                    except Exception as e:
+                        logger.error(f"Handler error: {e}")
+                    finally:
+                        await db.close()
+        except Exception as e:
+            logger.error(f"Task execution error: {e}")
+
+    async def handle_list_chunks(self, event: Event, db: AsyncSession):
+        try:
+            chunks = await self.get_document_chunks(event.document_id, db)
             await event_bus.emit(Event(
                 type="document.chunk.list.completed",
                 document_id=event.document_id,
@@ -49,11 +97,10 @@ class DocumentService:
                 data={"error": str(e)}
             ))
 
-    async def handle_get_metadata(self, event: Event):
-        """Handle metadata request"""
+    async def handle_get_metadata(self, event: Event, db: AsyncSession):
         logger.info("Handling request for metadata")
         try:
-            document = await self.get_document(event.document_id)
+            document = await self.get_document(event.document_id, db)
             await event_bus.emit(Event(
                 type="document.metadata.completed",
                 document_id=event.document_id,
@@ -69,12 +116,12 @@ class DocumentService:
                 data={"error": str(e)}
             ))
 
-    async def handle_navigate_chunks(self, event: Event):
-        """Handle chunk navigation request"""
+    async def handle_navigate_chunks(self, event: Event, db: AsyncSession):
         try:
             chunk_data = await self.navigate_chunks(
                 event.document_id,
-                event.data["chunk_index"]
+                event.data["chunk_index"],
+                db
             )
             await event_bus.emit(Event(
                 type="document.navigation.completed",
@@ -91,10 +138,9 @@ class DocumentService:
                 data={"error": str(e)}
             ))
 
-    async def handle_process_document(self, event: Event):
-        """Handle document processing request"""
+    async def handle_process_document(self, event: Event, db: AsyncSession):
         try:
-            document = await self.get_document(event.document_id)
+            document = await self.get_document(event.document_id, db)
             if document:
                 await event_bus.emit(Event(
                     type="document.processing.completed",
@@ -113,10 +159,9 @@ class DocumentService:
                 data={"error": str(e)}
             ))
 
-    async def get_document(self, document_id: str) -> Optional[Dict]:
-        """Get document details"""
+    async def get_document(self, document_id: str, db: AsyncSession) -> Optional[Dict]:
         try:
-            result = await self.db.execute(
+            result = await db.execute(
                 select(Document).where(Document.id == document_id)
             )
             document = result.scalar_one_or_none()
@@ -125,7 +170,7 @@ class DocumentService:
                 logger.warning(f"Document not found: {document_id}")
                 return None
 
-            result = await self.db.execute(
+            result = await db.execute(
                 select(DocumentChunk)
                 .where(DocumentChunk.document_id == document_id)
                 .order_by(DocumentChunk.sequence)
@@ -152,10 +197,9 @@ class DocumentService:
             logger.error(f"Error getting document: {str(e)}")
             return None
 
-    async def get_document_chunks(self, document_id: str) -> List[Dict]:
-        """Get chunks for a document"""
+    async def get_document_chunks(self, document_id: str, db: AsyncSession) -> List[Dict]:
         try:
-            result = await self.db.execute(
+            result = await db.execute(
                 select(DocumentChunk)
                 .where(DocumentChunk.document_id == document_id)
                 .order_by(DocumentChunk.sequence)
@@ -174,10 +218,9 @@ class DocumentService:
             logger.error(f"Error getting document chunks: {str(e)}")
             return []
 
-    async def navigate_chunks(self, document_id: str, chunk_index: int) -> Optional[Dict]:
-        """Navigate to a specific chunk"""
+    async def navigate_chunks(self, document_id: str, chunk_index: int, db: AsyncSession) -> Optional[Dict]:
         try:
-            result = await self.db.execute(
+            result = await db.execute(
                 select(DocumentChunk)
                 .where(DocumentChunk.document_id == document_id)
                 .order_by(DocumentChunk.sequence)
@@ -209,18 +252,16 @@ class DocumentService:
             logger.error(f"Error navigating chunks: {str(e)}")
             return None
 
-    async def get_chunk_content(self, chunk_id: str) -> Optional[str]:
-        """Get content of a chunk from database"""
-        result = await self.db.execute(
+    async def get_chunk_content(self, chunk_id: str, db: AsyncSession) -> Optional[str]:
+        result = await db.execute(
             select(DocumentChunk).where(DocumentChunk.id == chunk_id)
         )
         chunk = result.scalar_one_or_none()
         return chunk.content if chunk else None
 
-    async def list_documents(self, skip: int = 0, limit: int = 10) -> List[Dict]:
-        """List documents"""
+    async def list_documents(self, db: AsyncSession, skip: int = 0, limit: int = 10) -> List[Dict]:
         try:
-            result = await self.db.execute(
+            result = await db.execute(
                 select(Document)
                 .order_by(Document.created_at.desc())
                 .offset(skip)
@@ -239,3 +280,16 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error listing documents: {str(e)}")
             return []
+
+    async def shutdown(self):
+        self.shutdown_event.set()
+        
+        if hasattr(self, 'processor_task'):
+            self.processor_task.cancel()
+            try:
+                await self.processor_task
+            except asyncio.CancelledError:
+                pass
+
+        if self.active_tasks:
+            await asyncio.gather(*self.active_tasks, return_exceptions=True)

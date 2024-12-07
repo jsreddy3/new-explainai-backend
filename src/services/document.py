@@ -11,15 +11,24 @@ from ..core.events import Event, event_bus
 logger = setup_logger(__name__)
 
 class DocumentService:
-    def __init__(self, db: AsyncSession):
-        self.db = db
-        self.pdf_service = PDFService()
+    _instance = None
+    _initialized = False
 
-        """Initialize event listeners for document operations"""
-        event_bus.on("document.chunk.list.requested", self.handle_list_chunks)
-        event_bus.on("document.metadata.requested", self.handle_get_metadata)
-        event_bus.on("document.navigation.requested", self.handle_navigate_chunks)
-        event_bus.on("document.processing.requested", self.handle_process_document)
+    def __new__(cls, db: AsyncSession = None):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self, db: AsyncSession = None):
+        if not self._initialized and db is not None:
+            self.db = db
+            self.pdf_service = PDFService()
+            event_bus.on("document.chunk.list.requested", self.handle_list_chunks)
+            event_bus.on("document.metadata.requested", self.handle_get_metadata)
+            event_bus.on("document.navigation.requested", self.handle_navigate_chunks)
+            event_bus.on("document.processing.requested", self.handle_process_document)
+
+            self.__class__._initialized = True
 
     async def handle_list_chunks(self, event: Event):
         """Handle chunk list request"""
@@ -42,6 +51,7 @@ class DocumentService:
 
     async def handle_get_metadata(self, event: Event):
         """Handle metadata request"""
+        logger.info("Handling request for metadata")
         try:
             document = await self.get_document(event.document_id)
             await event_bus.emit(Event(

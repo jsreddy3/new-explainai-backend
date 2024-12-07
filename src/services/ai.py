@@ -21,8 +21,7 @@ class AIService:
         self,
         document_id: str,
         conversation_id: str,
-        system_prompt: str,
-        user_prompt: str,
+        messages: List[Dict[str, str]],
         stream: bool = True
     ) -> str:
         """Chat with the AI model with streaming support
@@ -30,24 +29,20 @@ class AIService:
         Args:
             document_id: ID of the document
             conversation_id: ID of the conversation
-            system_prompt: Formatted system prompt
-            user_prompt: Formatted user prompt
+            messages: List of message dictionaries with role and content
             stream: Whether to stream responses
         """
         try:
             # Log context window
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
-            logger.info(f"System Prompt: {system_prompt[:500]}...")
-            logger.info(f"User Prompt: {user_prompt[:500]}...")
+            for i, msg in enumerate(messages):
+                logger.info(f"Message {i} ({msg['role']}): {msg['content'][:500]}...")
             
             # Call AI model
             response = ""
             completion = await acompletion(
                 model=self.MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                messages=messages,
                 stream=stream
             )
             

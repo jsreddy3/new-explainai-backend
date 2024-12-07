@@ -34,11 +34,19 @@ class PromptManager:
         )
         
     def create_main_user_prompt(self, user_message: str) -> str:
-        """Create user prompt for main conversation"""
+        """Create user prompt for main conversation
+        
+        Args:
+            user_message: Original user message
+        """
         return MAIN_USER_PROMPT.format(user_message=user_message)
         
     def create_highlight_user_prompt(self, user_message: str) -> str:
-        """Create user prompt for highlight conversation"""
+        """Create user prompt for highlight conversation
+        
+        Args:
+            user_message: Original user message
+        """
         return HIGHLIGHT_USER_PROMPT.format(user_message=user_message)
         
     def create_main_question_prompts(self, chunk_text: str, count: int, previous_questions: str = "") -> Tuple[str, str]:

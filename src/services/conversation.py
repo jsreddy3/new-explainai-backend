@@ -145,8 +145,9 @@ class ConversationService:
             
             # Get conversation
             conversation = await self.db.get(Conversation, conversation_id)
+            chunk = await self._get_chunk(conversation.chunk_id) if conversation.chunk_id else None
             
-            # Add user message
+            # 1. Store raw user message in DB
             message = await self._create_message(
                 conversation_id, 
                 content, 
@@ -155,21 +156,33 @@ class ConversationService:
             )
             await self.db.commit()  # Commit user message first
             
-            # Build message history with chunk switches if main conversation
+            # 2. Process the user message based on conversation type
+            if conversation.type == "highlight":
+                highlighted_text = await self._get_highlighted_text(conversation_id)
+                processed_content = self.prompt_manager.create_highlight_user_prompt(
+                    chunk_text=chunk.content,
+                    highlighted_text=highlighted_text,
+                    user_message=content
+                )
+            else:
+                processed_content = self.prompt_manager.create_main_user_prompt(
+                    user_message=content
+                )
+            
+            # 3. Get all messages including system prompt and chunk switches
             messages = await self._get_messages_with_chunk_switches(conversation)
             
-            # Format prompts
-            system_prompt = self.prompt_manager.create_chat_system_prompt(messages)
-            user_prompt = content
+            # 4. Replace the last message's content with processed version
+            if messages:
+                messages[-1]["content"] = processed_content
             
             logger.info(f"Calling AI service chat - Document: {document_id}, Conversation: {conversation_id}")
             
-            # Get AI response using context
+            # 5. Send entire messages array to AI service
             response = await self.ai_service.chat(
                 document_id,
                 conversation_id,
-                system_prompt,
-                user_prompt
+                messages=messages  # Send complete messages array
             )
             
             logger.info(f"AI service chat response - Document: {document_id}, Conversation: {conversation_id}, Response: {response}")
@@ -181,18 +194,13 @@ class ConversationService:
                 "assistant",
                 chunk_id if chunk_id else conversation.chunk_id
             )
-            await self.db.commit()  # Commit AI message
+            await self.db.commit()
             
-            # Only emit completed after we've fully processed everything
             await event_bus.emit(Event(
                 type="conversation.message.send.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
-                data={
-                    "conversation_id": conversation_id,
-                    "message": message.to_dict(),
-                    "ai_message": ai_message.to_dict()
-                }
+                data={"message": response}
             ))
                 
         except Exception as e:

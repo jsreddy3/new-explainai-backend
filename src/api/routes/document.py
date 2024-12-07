@@ -101,6 +101,7 @@ class WebSocketHandler:
 
     async def handle_get_metadata(self, data: Dict):
         """Handle request to get document metadata"""
+        logger.info(f"Requesting metadata for document {self.document_id}")
         await event_bus.emit(Event(
             type="document.metadata.requested",
             document_id=self.document_id,

@@ -148,7 +148,6 @@ class WebSocketHandler:
         if not all([conversation_id, content]):
             await self.websocket.send_json({"error": "Missing conversation_id or content"})
             return
-        print("SENDING MESSAGE\n\n")
         await event_bus.emit(Event(
             type="conversation.message.send.requested",
             document_id=self.document_id,

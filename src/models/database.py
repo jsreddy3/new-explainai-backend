@@ -2,9 +2,14 @@ from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text, Bool
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.sqlite import JSON
 from datetime import datetime
+from enum import Enum
 import uuid
 
 from src.db.session import Base
+
+class ConversationType(str, Enum):
+    MAIN = "main"
+    HIGHLIGHT = "highlight"
 
 class User(Base):
     __tablename__ = 'users'
@@ -49,6 +54,7 @@ class Conversation(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     document_id = Column(String, ForeignKey('documents.id'))
     chunk_id = Column(String, ForeignKey('document_chunks.id'), nullable=True)
+    type = Column(String, default=ConversationType.MAIN)
     created_at = Column(DateTime, default=datetime.utcnow)
     meta_data = Column(JSON)
 
@@ -61,6 +67,15 @@ class Conversation(Base):
     # Add new relationship for questions
     questions = relationship("Question", back_populates="conversation")
 
+    def to_dict(self):
+      return {
+        "id": self.id,
+        "document_id": self.document_id,
+        "chunk_id": self.chunk_id,
+        "type": self.type,
+        "meta_data": self.meta_data
+      }
+
 
 class Message(Base):
     __tablename__ = 'messages'
@@ -71,6 +86,7 @@ class Message(Base):
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     meta_data = Column(JSON, nullable=True)
+    chunk_id = Column(String, ForeignKey('document_chunks.id'), nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
 

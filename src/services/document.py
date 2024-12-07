@@ -15,7 +15,6 @@ class DocumentService:
         self.db = db
         self.pdf_service = PDFService()
 
-    async def initialize_listeners(self):
         """Initialize event listeners for document operations"""
         event_bus.on("document.chunk.list.requested", self.handle_list_chunks)
         event_bus.on("document.metadata.requested", self.handle_get_metadata)
@@ -199,6 +198,14 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error navigating chunks: {str(e)}")
             return None
+
+    async def get_chunk_content(self, chunk_id: str) -> Optional[str]:
+        """Get content of a chunk from database"""
+        result = await self.db.execute(
+            select(DocumentChunk).where(DocumentChunk.id == chunk_id)
+        )
+        chunk = result.scalar_one_or_none()
+        return chunk.content if chunk else None
 
     async def list_documents(self, skip: int = 0, limit: int = 10) -> List[Dict]:
         """List documents"""

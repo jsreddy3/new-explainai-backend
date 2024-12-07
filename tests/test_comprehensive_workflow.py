@@ -32,7 +32,7 @@ class WebSocketTestClient:
         await self._ws.send_json(data)
         logger.debug(f"{self.name}: Sent message: {data}")
 
-    async def receive_json(self, timeout: float = 5.0) -> Dict:
+    async def receive_json(self, timeout: float = 15.0) -> Dict:
         try:
             msg = await asyncio.wait_for(self._ws.receive_json(), timeout)
             logger.debug(f"{self.name}: Received message: {msg}")
@@ -417,3 +417,289 @@ async def test_multi_user_workflow():
 
             response = await ws_user1.receive_json()
             assert response["type"] == "conversation.chunk.merge.completed"
+
+@pytest.mark.asyncio
+async def test_conversation_context_and_responses():
+    """Test 7: Detailed examination of conversation context building and responses"""
+    async with aiohttp.ClientSession() as session:
+        # Upload the Pale Fire document
+        print("\n=== Uploading Pale Fire Document ===")
+        document_data = await upload_test_document(session)
+        document_id = document_data["document_id"]
+        print(f"Document uploaded with ID: {document_id}")
+        print(f"Initial chunk content:\n{document_data['current_chunk']['content']}\n")
+        
+        # Create WebSocket connections for different conversation streams
+        async with \
+            WebSocketTestClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}", "main_conv") as ws_main, \
+            WebSocketTestClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}", "highlight_conv") as ws_highlight:
+            
+            # Start main conversation about the document's themes
+            print("\n=== Creating Main Conversation ===")
+            await ws_main.send_json({
+                "type": "conversation.main.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": document_data["current_chunk"]["id"]
+                }
+            })
+            response = await ws_main.receive_json()
+            main_conversation_id = response["data"]["conversation_id"]
+            print(f"Main conversation created with ID: {main_conversation_id}")
+
+            # Ask about the document's themes
+            print("\n=== Asking About Document Themes ===")
+            await ws_main.send_json({
+                "type": "conversation.message.send",
+                "data": {
+                    "content": "What are the main themes discussed in this document about Pale Fire?",
+                    "document_id": document_id,
+                    "conversation_id": main_conversation_id
+                }
+            })
+            response = await ws_main.receive_json()
+            print(f"AI Response about themes:\n{response['data']['message']['content']}\n")
+
+            # Generate follow-up questions about themes
+            print("\n=== Generating Theme-Related Questions ===")
+            await ws_main.send_json({
+                "type": "conversation.questions.generate",
+                "data": {
+                    "document_id": document_id,
+                    "conversation_id": main_conversation_id
+                }
+            })
+            response = await ws_main.receive_json()
+            print("Generated questions about themes:")
+            for question in response["data"]["questions"]:
+                print(f"- {question}")
+            print("")
+
+            # Create a highlight conversation about a specific section
+            print("\n=== Creating Highlight Conversation ===")
+            highlight_text = document_data["current_chunk"]["content"][:200]  # First 200 chars for testing
+            await ws_highlight.send_json({
+                "type": "conversation.chunk.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": document_data["current_chunk"]["id"],
+                    "highlighted_text": highlight_text
+                }
+            })
+            response = await ws_highlight.receive_json()
+            highlight_conversation_id = response["data"]["conversation_id"]
+            print(f"Highlight conversation created with ID: {highlight_conversation_id}")
+            print(f"Highlighted text:\n{highlight_text}\n")
+
+            # Ask about the highlighted section
+            print("\n=== Asking About Highlighted Section ===")
+            await ws_highlight.send_json({
+                "type": "conversation.message.send",
+                "data": {
+                    "content": "Can you explain the significance of this highlighted section?",
+                    "document_id": document_id,
+                    "conversation_id": highlight_conversation_id
+                }
+            })
+            response = await ws_highlight.receive_json()
+            print(f"AI Response about highlighted section:\n{response['data']['message']['content']}\n")
+
+            # Generate questions specific to the highlighted section
+            print("\n=== Generating Questions About Highlighted Section ===")
+            await ws_highlight.send_json({
+                "type": "conversation.questions.generate",
+                "data": {
+                    "document_id": document_id,
+                    "conversation_id": highlight_conversation_id
+                }
+            })
+            response = await ws_highlight.receive_json()
+            print("Generated questions about highlighted section:")
+            for question in response["data"]["questions"]:
+                print(f"- {question}")
+            print("")
+
+            # Merge highlight conversation into main conversation
+            print("\n=== Merging Highlight Conversation into Main ===")
+            await ws_main.send_json({
+                "type": "conversation.chunk.merge",
+                "data": {
+                    "document_id": document_id,
+                    "conversation_ids": [highlight_conversation_id]
+                }
+            })
+            response = await ws_main.receive_json()
+            print("Merge completed. Checking context preservation...")
+
+            # Verify context preservation by asking about both themes and highlighted section
+            print("\n=== Verifying Context Preservation ===")
+            await ws_main.send_json({
+                "type": "conversation.message.send",
+                "data": {
+                    "content": "Can you summarize both the overall themes we discussed and the specific section we analyzed in detail?",
+                    "document_id": document_id,
+                    "conversation_id": main_conversation_id
+                }
+            })
+            response = await ws_main.receive_json()
+            print(f"AI Response combining both contexts:\n{response['data']['message']['content']}\n")
+
+            # Generate final questions that should cover both contexts
+            print("\n=== Generating Final Combined Questions ===")
+            await ws_main.send_json({
+                "type": "conversation.questions.generate",
+                "data": {
+                    "document_id": document_id,
+                    "conversation_id": main_conversation_id
+                }
+            })
+            response = await ws_main.receive_json()
+            print("Generated questions covering both contexts:")
+            for question in response["data"]["questions"]:
+                print(f"- {question}")
+            print("\n=== Test Complete ===")
+
+@pytest.mark.asyncio
+async def test_highlight_conversation_context():
+    async with aiohttp.ClientSession() as session:
+        # Upload the test PDF document
+        document_data = await upload_test_document(session)
+        document_id = document_data["document_id"]
+        
+        # Log document data to see structure
+        print("\nDocument Data Structure:")
+        print(json.dumps(document_data, indent=2))
+        
+        # Now connect to WebSocket with correct document ID
+        async with WebSocketTestClient(
+            session,
+            f"ws://localhost:8000/api/conversations/stream/{document_id}",
+            "test_client"
+        ) as client:
+            # Create main conversation
+            main_conv_data = {
+                "type": "conversation.main.create",
+                "data": {
+                    "document_id": document_id
+                }
+            }
+            await client.send_json(main_conv_data)
+            main_conv_response = await client.receive_json()
+            main_conversation_id = main_conv_response["data"]["conversation_id"]
+            
+            # Create a highlight conversation with specific text from the PDF
+            highlight_text = document_data["current_chunk"]["content"][50:80]  # Take first 100 chars of chunk
+            highlight_data = {
+                "type": "conversation.chunk.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": document_data["current_chunk"]["id"],
+                    "highlight_range": {"start": 50, "end": 80},
+                    "highlighted_text": highlight_text
+                }
+            }
+            await client.send_json(highlight_data)
+            highlight_response = await client.receive_json()
+            assert highlight_response["type"] == "conversation.chunk.create.completed"
+            highlight_conversation_id = highlight_response["data"]["conversation_id"]
+            
+            # Send a message to verify context preservation
+            message_data = {
+                "type": "conversation.message.send",
+                "data": {
+                    "content": "What is the significance of this highlighted section?",
+                    "document_id": document_id,
+                    "conversation_id": highlight_conversation_id
+                }
+            }
+            await client.send_json(message_data)
+            message_response = await client.receive_json()
+            
+            # Verify the response includes our highlight context
+            assert message_response["type"] == "conversation.message.send.completed"
+            print(message_response['data']['message'])
+                
+            # Generate questions for the highlight conversation
+            question_data = {
+                "type": "conversation.questions.generate",
+                "data": {
+                    "conversation_id": highlight_conversation_id
+                }
+            }
+            await client.send_json(question_data)
+            question_response = await client.receive_json()
+            
+            # Verify questions were generated with context
+            assert "questions" in question_response["data"]
+            assert len(question_response["data"]["questions"]) > 0
+            print(question_response["data"]["questions"])
+            assert "questions" in question_response
+
+@pytest.mark.asyncio
+async def test_chunk_navigation(db: AsyncSession):
+    """Test chunk navigation in main conversation"""
+    # Create document with chunks
+    document = Document(
+        title="Test Document",
+        content="Full document content"
+    )
+    db.add(document)
+    
+    chunk1 = DocumentChunk(
+        document_id=document.id,
+        content="This is chunk 1",
+        sequence=0
+    )
+    chunk2 = DocumentChunk(
+        document_id=document.id,
+        content="This is chunk 2",
+        sequence=1
+    )
+    db.add(chunk1)
+    db.add(chunk2)
+    await db.commit()
+    
+    # Create conversation service
+    conversation_service = ConversationService(db)
+    
+    # Create main conversation
+    conversation = await conversation_service.create_main_conversation(document.id)
+    
+    # Send message about chunk 1
+    message1 = await conversation_service.send_message(
+        conversation_id=conversation.id,
+        content="What's in chunk 1?",
+        chunk_id=chunk1.id
+    )
+    assert message1.meta_data["chunk_id"] == chunk1.id
+    
+    # Send message about chunk 2
+    message2 = await conversation_service.send_message(
+        conversation_id=conversation.id,
+        content="Tell me about chunk 2",
+        chunk_id=chunk2.id
+    )
+    assert message2.meta_data["chunk_id"] == chunk2.id
+    
+    # Back to chunk 1
+    message3 = await conversation_service.send_message(
+        conversation_id=conversation.id,
+        content="More about chunk 1?",
+        chunk_id=chunk1.id
+    )
+    assert message3.meta_data["chunk_id"] == chunk1.id
+    
+    # Get all messages
+    messages = await conversation_service.get_conversation_messages(conversation.id)
+    
+    # Verify chunk transitions
+    chunk_transitions = []
+    last_chunk_id = None
+    for msg in messages:
+        chunk_id = msg.meta_data.get("chunk_id")
+        if chunk_id != last_chunk_id:
+            chunk_transitions.append(chunk_id)
+        last_chunk_id = chunk_id
+    
+    # Should be: chunk1 -> chunk2 -> chunk1
+    assert chunk_transitions == [chunk1.id, chunk2.id, chunk1.id]

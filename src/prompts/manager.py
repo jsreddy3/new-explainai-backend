@@ -1,128 +1,98 @@
 """Prompt manager for handling different types of prompts"""
 
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple 
 from .base import (
     MAIN_SYSTEM_PROMPT,
-    HIGHLIGHT_SYSTEM_PROMPT,
-    CHUNK_SYSTEM_PROMPT,
-    QUESTION_SYSTEM_PROMPT,
-    SUMMARY_SYSTEM_PROMPT,
     MAIN_USER_PROMPT,
+    HIGHLIGHT_SYSTEM_PROMPT,
     HIGHLIGHT_USER_PROMPT,
-    CHUNK_USER_PROMPT,
+    HIGHLIGHT_QUESTION_SYSTEM_PROMPT,
     HIGHLIGHT_QUESTION_USER_PROMPT,
-    CHUNK_QUESTION_USER_PROMPT,
+    MAIN_QUESTION_SYSTEM_PROMPT,
     MAIN_QUESTION_USER_PROMPT,
+    SUMMARY_SYSTEM_PROMPT,
     SUMMARY_USER_PROMPT
 )
 
+from src.core.logging import setup_logger
+
+logger = setup_logger(__name__)
+
 class PromptManager:
-    def get_prompts(self, context: Dict) -> Tuple[str, Optional[str]]:
-        """Get the appropriate system and user prompts based on context.
-        Returns (system_prompt, user_prompt)"""
+    def __init__(self):
+        pass
         
-        # Handle question generation
-        if context.get("question_generation"):
-            return self._get_question_prompts(context)
-            
-        # Handle summary generation
-        elif context.get("summary_generation"):
-            return (
-                SUMMARY_SYSTEM_PROMPT,
-                SUMMARY_USER_PROMPT.format(
-                    highlighted_text=context.get("highlighted_text", ""),
-                    conversation_history=self._format_messages(context.get("messages", []))
-                )
-            )
-            
-        # Handle highlight analysis
-        elif context.get("highlighted_text"):
-            return (
-                HIGHLIGHT_SYSTEM_PROMPT,
-                HIGHLIGHT_USER_PROMPT.format(
-                    highlighted_text=context["highlighted_text"],
-                    chunk_text=context.get("chunk", {}).get("text", "")
-                )
-            )
-            
-        # Handle chunk analysis
-        elif context["conversation"]["type"] == "chunk":
-            chunk = context.get("chunk", {})
-            return (
-                CHUNK_SYSTEM_PROMPT,
-                CHUNK_USER_PROMPT.format(
-                    sequence=chunk.get("sequence", "?"),
-                    chunk_text=chunk.get("text", "")
-                )
-            )
-            
-        # Handle main document analysis
-        else:
-            return (
-                MAIN_SYSTEM_PROMPT,
-                MAIN_USER_PROMPT.format(
-                    content=context["document"]["content"],
-                    conversation_history=self._format_messages(
-                        context.get("messages", [])
-                    )
-                )
-            )
-    
-    def _get_question_prompts(self, context: Dict) -> Tuple[str, str]:
-        """Get prompts specifically for question generation"""
-        previous_questions = self._format_previous_questions(context)
-        count = context.get("count", 3)
+    def create_main_system_prompt(self, chunk_text: str) -> str:
+        """Create system prompt for main conversation"""
+        return MAIN_SYSTEM_PROMPT.format(chunk_text=chunk_text)
         
-        # Questions about highlights
-        if context.get("highlighted_text"):
-            return (
-                QUESTION_SYSTEM_PROMPT,
-                HIGHLIGHT_QUESTION_USER_PROMPT.format(
-                    highlighted_text=context["highlighted_text"],
-                    previous_questions=previous_questions,
-                    count=count
-                )
+    def create_highlight_system_prompt(self, chunk_text: str, highlighted_text: str) -> str:
+        """Create system prompt for highlight conversation"""
+        return HIGHLIGHT_SYSTEM_PROMPT.format(
+            chunk_text=chunk_text,
+            highlighted_text=highlighted_text
+        )
+        
+    def create_main_user_prompt(self, user_message: str) -> str:
+        """Create user prompt for main conversation"""
+        return MAIN_USER_PROMPT.format(user_message=user_message)
+        
+    def create_highlight_user_prompt(self, user_message: str) -> str:
+        """Create user prompt for highlight conversation"""
+        return HIGHLIGHT_USER_PROMPT.format(user_message=user_message)
+        
+    def create_main_question_prompts(self, chunk_text: str, count: int, previous_questions: str = "") -> Tuple[str, str]:
+        """Create prompts for main conversation question generation"""
+        return (
+            MAIN_QUESTION_SYSTEM_PROMPT.format(
+                chunk_text=chunk_text,
+                previous_questions=previous_questions
+            ),
+            MAIN_QUESTION_USER_PROMPT.format(count=count)
+        )
+        
+    def create_highlight_question_prompts(
+        self, 
+        chunk_text: str,
+        highlighted_text: str,
+        count: int,
+        previous_questions: str = ""
+    ) -> Tuple[str, str]:
+        """Create prompts for highlight conversation question generation"""
+        return (
+            HIGHLIGHT_QUESTION_SYSTEM_PROMPT.format(
+                chunk_text=chunk_text,
+                highlighted_text=highlighted_text,
+                previous_questions=previous_questions
+            ),
+            HIGHLIGHT_QUESTION_USER_PROMPT.format(count=count)
+        )
+        
+    def create_summary_prompts(
+        self,
+        chunk_text: str,
+        highlighted_text: str,
+        conversation_history: str
+    ) -> Tuple[str, str]:
+        """Create prompts for conversation summarization"""
+        return (
+            SUMMARY_SYSTEM_PROMPT.format(chunk_text=chunk_text),
+            SUMMARY_USER_PROMPT.format(
+                highlighted_text=highlighted_text,
+                conversation_history=conversation_history
             )
-            
-        # Questions about chunks
-        elif context["conversation"]["type"] == "chunk":
-            return (
-                QUESTION_SYSTEM_PROMPT,
-                CHUNK_QUESTION_USER_PROMPT.format(
-                    chunk_text=context.get("chunk", {}).get("text", ""),
-                    previous_questions=previous_questions,
-                    count=count
-                )
-            )
-            
-        # Questions about main document
-        else:
-            return (
-                QUESTION_SYSTEM_PROMPT,
-                MAIN_QUESTION_USER_PROMPT.format(
-                    content=context["document"]["content"],
-                    previous_questions=previous_questions,
-                    count=count
-                )
-            )
-    
-    def _format_messages(self, messages: List[Dict], limit: int = 3) -> str:
-        """Format recent messages into a readable conversation history"""
-        if not messages:
-            return "No previous messages"
-        return "\n".join([
-            f"{msg['role'].title()}: {msg['content']}"
-            for msg in messages[-limit:]
+        )
+
+    def create_chat_system_prompt(self, messages: List[Dict]) -> str:
+        """Create system prompt for chat"""
+        # Format conversation history
+        history = "\n".join([
+            f"{msg['role']}: {msg['content']}"
+            for msg in messages
         ])
-        
-    def _format_previous_questions(self, context: Dict) -> str:
-        """Format previous questions from the conversation"""
-        messages = context.get("messages", [])
-        questions = [
-            msg["content"] 
-            for msg in messages 
-            if msg["role"] == "assistant" and "?" in msg["content"]
-        ]
-        if not questions:
-            return "No previous questions"
-        return "\n".join([f"- {q}" for q in questions[-3:]])
+        return f"""You are an AI assistant helping a user understand a document.
+Here is the conversation history:
+
+{history}
+
+Please provide a helpful response to the user's next message."""

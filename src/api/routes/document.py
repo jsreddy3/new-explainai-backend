@@ -15,7 +15,6 @@ from src.core.websocket_manager import manager
 from src.models.database import Document, DocumentChunk
 
 logger = setup_logger(__name__)
-ai_service = AIService()
 pdf_service = PDFService()
 router = APIRouter()
 

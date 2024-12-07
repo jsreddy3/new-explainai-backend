@@ -35,10 +35,6 @@ async def lifespan(app: FastAPI):
         async with AsyncSessionLocal() as db:
             conversation_service = ConversationService(db)
             document_service = DocumentService(db)
-            
-            # Initialize service listeners
-            await conversation_service.initialize_listeners()
-            await document_service.initialize_listeners()
         
         # Verify required settings
         required_settings = [

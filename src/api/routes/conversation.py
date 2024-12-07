@@ -15,7 +15,6 @@ from src.core.logging import setup_logger
 from src.models.database import Conversation
 
 logger = setup_logger(__name__)
-ai_service = AIService()
 router = APIRouter()
 
 class WebSocketHandler:
@@ -23,7 +22,8 @@ class WebSocketHandler:
         self.websocket = websocket
         self.document_id = document_id
         self.db = db
-        self.conversation_service = ConversationService(db)
+        self.conversation_service = ConversationService()  # Get singleton instance
+        self.conversation_service.update_db(db)  # Update with current db session
         self.queue = asyncio.Queue()
         self.connection_id = None
         self.task = None
@@ -148,7 +148,7 @@ class WebSocketHandler:
         if not all([conversation_id, content]):
             await self.websocket.send_json({"error": "Missing conversation_id or content"})
             return
-
+        print("SENDING MESSAGE\n\n")
         await event_bus.emit(Event(
             type="conversation.message.send.requested",
             document_id=self.document_id,
@@ -174,8 +174,10 @@ class WebSocketHandler:
             document_id=self.document_id,
             connection_id=self.connection_id,
             data={
+                "document_id": self.document_id,
                 "conversation_id": conversation_id,
-                "count": count
+                "count": count,
+                "chunk_id": data.get("chunk_id")
             }
         ))
 
@@ -247,6 +249,7 @@ class WebSocketHandler:
 
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message using match-case"""
+        print("Processing message: ", message)
         msg_type = message.get("type")
         data = message.get("data", {})
 
@@ -316,10 +319,12 @@ async def conversation_stream(
     
     try:
         connection_id = await handler.connect()
+        print("Connected with connection ID: ", connection_id)
         while True:
             message = await websocket.receive_json()
             await handler.process_message(message)
     except WebSocketDisconnect:
+        print("WebSocket disconnected")
         logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
         await handler.cleanup()

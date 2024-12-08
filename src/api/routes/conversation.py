@@ -48,7 +48,8 @@ class WebSocketHandler:
             "conversation.merge.completed", "conversation.merge.error",
             
             # Document events (needed for chunk operations)
-            "document.chunk.list.completed", "document.chunk.list.error"
+            "document.chunk.list.completed", "document.chunk.list.error",
+            "conversation.chunk.get.completed", "conversation.chunk.get.error"
         ]
 
     async def connect(self):
@@ -245,6 +246,23 @@ class WebSocketHandler:
             data={}
         ))
 
+    async def handle_get_conversations_by_sequence(self, data: Dict):
+        """Handle request to get conversations by chunk sequence number"""
+        sequence_number = data.get("sequence_number")
+        
+        if sequence_number is None:  # explicitly check None since 0 is valid
+            await self.websocket.send_json({"error": "Missing sequence_number"})
+            return
+            
+        await event_bus.emit(Event(
+            type="conversation.chunk.get.requested",
+            document_id=self.document_id,
+            connection_id=self.connection_id,
+            data={
+                "sequence_number": sequence_number
+            }
+        ))
+
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message"""
         print("Processing message: ", message)
@@ -268,6 +286,8 @@ class WebSocketHandler:
             await self.handle_generate_questions(data)
         elif msg_type == "document.chunk.list":
             await self.handle_list_chunks(data)
+        elif msg_type == "conversation.get.by.sequence":
+            await self.handle_get_conversations_by_sequence(data)
         else:
             await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
                 

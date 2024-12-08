@@ -139,6 +139,20 @@ async def test_complex_conversation_flow():
             assert response["type"] == "conversation.chunk.create.completed"
             highlight_conversation_id = response["data"]["conversation_id"]
 
+            # Test getting conversations by sequence number
+            await client.send_json({
+                "type": "conversation.get.by.sequence",
+                "data": {
+                    "sequence_number": 1  # This should find our highlight conversation since it's on chunk 1
+                }
+            })
+            response = await client.receive_json()
+            assert response["type"] == "conversation.chunk.get.completed"
+            conversations = response["data"]["conversations"]
+            assert len(conversations) > 0
+            assert any(conv["id"] == highlight_conversation_id for conv in conversations)
+            assert all(conv["chunk_id"] == "1" for conv in conversations)
+
             # Converse in highlight conversation
             await client.send_json({
                 "type": "conversation.message.send",

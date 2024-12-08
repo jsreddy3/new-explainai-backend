@@ -51,6 +51,7 @@ class ConversationService:
             event_bus.on("conversation.questions.generate.requested", self._queue_task(self.handle_generate_questions))
             event_bus.on("conversation.questions.list.requested", self._queue_task(self.handle_list_questions))
             event_bus.on("conversation.merge.requested", self._queue_task(self.handle_merge_conversations))
+            event_bus.on("conversation.chunk.get.requested", self._queue_task(self.handle_get_conversations_by_sequence))
                 
             self.__class__._initialized = True
 
@@ -419,6 +420,52 @@ class ConversationService:
                 data={"error": str(e)}
             ))
 
+    async def handle_get_conversations_by_sequence(self, event: Event, db: AsyncSession):
+        """Get all conversations for a document that have a specific chunk sequence number"""
+        try:
+            document_id = event.document_id
+            sequence_number = event.data["sequence_number"]
+            
+            # Query conversations with the given document_id and chunk_id (sequence number)
+            stmt = select(Conversation).where(
+                and_(
+                    Conversation.document_id == document_id,
+                    Conversation.chunk_id == sequence_number
+                )
+            )
+            
+            result = await db.execute(stmt)
+            conversations = result.scalars().all()
+            
+            # Convert conversations to dict format
+            conversations_data = [
+                {
+                    "id": str(conv.id),
+                    "document_id": str(conv.document_id),
+                    "chunk_id": conv.chunk_id,
+                    "created_at": conv.created_at.isoformat(),
+                    "highlight_text": conv.meta_data.get("highlight_text") if conv.meta_data else ""
+                }
+                for conv in conversations
+            ]
+            
+            # Emit success event
+            await event_bus.emit(Event(
+                type="conversation.chunk.get.completed",
+                document_id=document_id,
+                connection_id=event.connection_id,
+                data={"conversations": conversations_data}
+            ))
+            
+        except Exception as e:
+            logger.error(f"Error getting conversations by sequence: {str(e)}")
+            await event_bus.emit(Event(
+                type="conversation.chunk.get.error",
+                document_id=event.document_id,
+                connection_id=event.connection_id,
+                data={"error": str(e)}
+            ))
+
     async def _get_messages_with_chunk_switches(self, conversation: Dict, db: AsyncSession) -> List[Dict]:
         messages = await self.get_conversation_messages(conversation["id"], db)
         
@@ -431,7 +478,6 @@ class ConversationService:
         
         for msg in reversed(messages):
             current_chunk_id = msg.get("chunk_id", "")
-            breakpoint()
             if current_chunk_id and current_chunk_id != last_chunk_id:
                 switch_msg = {
                     "role": "user",

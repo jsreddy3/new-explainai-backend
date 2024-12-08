@@ -143,6 +143,7 @@ class WebSocketHandler:
         conversation_id = data.get("conversation_id")
         content = data.get("content")
         role = data.get("role", "user")
+        chunk_id = data.get("chunk_id")
 
         if not all([conversation_id, content]):
             await self.websocket.send_json({"error": "Missing conversation_id or content"})
@@ -154,7 +155,8 @@ class WebSocketHandler:
             data={
                 "conversation_id": conversation_id,
                 "content": content,
-                "role": role
+                "role": role,
+                "chunk_id": chunk_id
             }
         ))
 

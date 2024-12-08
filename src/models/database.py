@@ -96,7 +96,7 @@ class Message(Base):
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     meta_data = Column(JSON, nullable=True)
-    chunk_id = Column(String, ForeignKey('document_chunks.id'), nullable=True)
+    chunk_id = Column(String)
 
     conversation = relationship("Conversation", back_populates="messages")
 
@@ -108,7 +108,8 @@ class Message(Base):
             "role": self.role,
             "content": self.content,
             "created_at": self.created_at.isoformat(),
-            "meta_data": self.meta_data
+            "meta_data": self.meta_data,
+            "chunk_id": self.chunk_id
         }
 
 class Question(Base):

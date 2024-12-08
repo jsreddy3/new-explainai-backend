@@ -54,7 +54,7 @@ class WebSocketClient:
         if not self._closed and self.ws:
             await self.ws.send_json(data)
     
-    async def receive_json(self, timeout: float = 20.0):
+    async def receive_json(self, timeout: float = 60.0):
         """Receive JSON data from the server"""
         try:
             return await asyncio.wait_for(self._message_queue.get(), timeout)

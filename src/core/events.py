@@ -83,7 +83,7 @@ class EventBus:
         """Emit an event to all registered listeners"""
         self.logger.debug(f"EVENT BUS: Emitting event - Type: {event.type}, Data: {event.data}")
         if (event.type != "chat.token"):
-          print(f"EVENT BUS: Event successfully emitted {event.type} with data {event.data}")
+          print(f"EVENT BUS: Event successfully emitted {event.type}")
         if not self._initialized:
             self.initialize()
         await self._event_queue.put(event)

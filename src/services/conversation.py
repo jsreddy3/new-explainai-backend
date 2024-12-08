@@ -86,7 +86,6 @@ class ConversationService:
             logger.error(f"Task execution error: {e}")
 
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
-        logger.info("Handling create main conversation")
         try:
             document_id = event.document_id
             
@@ -105,9 +104,9 @@ class ConversationService:
             system_prompt = self.prompt_manager.create_main_system_prompt(first_chunk["content"])
             message_obj = await self._create_message(
                 conversation["id"], 
-                system_prompt, 
-                "system",
+                system_prompt,
                 0,
+                "system",
                 db=db  # Pass db
             )
             
@@ -129,7 +128,6 @@ class ConversationService:
             ))
 
     async def handle_create_chunk_conversation(self, event: Event, db: AsyncSession):
-        logger.info("Handling create chunk conversation for document: {}".format(event.data))
         try:
             data = event.data
             document_id = event.document_id
@@ -158,8 +156,8 @@ class ConversationService:
             await self._create_message(
                 conversation["id"], 
                 system_prompt, 
-                "system",
                 chunk_id,
+                "system",
                 db=db  # Pass db
             )
             
@@ -185,10 +183,8 @@ class ConversationService:
         try:
             conversation_id = event.data["conversation_id"]
             content = event.data["content"]
-            chunk_id = event.data.get("chunk_id")
-            
-            logger.info(f"Handling send message - Document: {document_id}, Conversation: {conversation_id}")
-            
+            chunk_id = event.data["chunk_id"]
+                        
             # Get conversation
             conversation = await self._get_conversation(conversation_id, db)  # Pass db
             chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=conversation["chunk_id"], db=db) if conversation["chunk_id"] else None  # Pass db
@@ -197,8 +193,8 @@ class ConversationService:
             message = await self._create_message(
                 conversation["id"], 
                 content, 
-                "user",
                 chunk_id if chunk_id else conversation["chunk_id"],
+                "user",
                 db=db  # Pass db
             )
             await db.commit()
@@ -220,24 +216,20 @@ class ConversationService:
 
             if messages:
                 messages[-1]["content"] = processed_content
-            
-            logger.info(f"Calling AI service chat - Document: {document_id}, Conversation: {conversation_id}, Messages: {messages}")
-            
+                        
             # 5. Send entire messages array to AI service
             response = await self.ai_service.chat(
                 document_id,
                 conversation_id,
                 messages=messages
             )
-            
-            logger.info(f"AI service chat response - Document: {document_id}, Conversation: {conversation_id}, Response: {response}")
-            
+                        
             # Add AI response in a new transaction
             ai_message = await self._create_message(
                 conversation["id"], 
                 response, 
-                "assistant",
                 chunk_id if chunk_id else conversation["chunk_id"],
+                "assistant",
                 db=db  # Pass db
             )
             await db.commit()
@@ -365,8 +357,8 @@ class ConversationService:
             await self._create_message(
                 conversation_id=main_conversation_id,
                 content=f"Summary of highlight discussion:\n{summary}",
-                role="user",
                 chunk_id=chunk_id,
+                role="user",
                 meta_data={"merged_from": highlight_conversation_id},
                 db=db
             )
@@ -375,10 +367,12 @@ class ConversationService:
             await self._create_message(
                 conversation_id=main_conversation_id,
                 content="Acknowledged conversation merge",
-                role="assistant",
                 chunk_id=chunk_id,
+                role="assistant",
                 db=db
             )
+
+            await db.commit()
             
             await event_bus.emit(Event(
                 type="conversation.merge.completed",
@@ -432,12 +426,12 @@ class ConversationService:
             return messages
             
         processed_messages = []
-        last_chunk_id = None
+        last_chunk_id = 0
         added_content_chunks = set()
         
         for msg in reversed(messages):
             current_chunk_id = msg.get("chunk_id", "")
-            
+            breakpoint()
             if current_chunk_id and current_chunk_id != last_chunk_id:
                 switch_msg = {
                     "role": "user",
@@ -457,6 +451,8 @@ class ConversationService:
                 processed_messages.insert(0, switch_msg)
                 last_chunk_id = current_chunk_id
             processed_messages.insert(0, msg)
+
+        logger.info("Processed messages with chunk switches: ", processed_messages)
             
         return processed_messages
 
@@ -487,8 +483,8 @@ class ConversationService:
         self,
         conversation_id: str,
         content: str,
+        chunk_id: str,
         role: str = "user",
-        chunk_id: Optional[str] = None,
         meta_data: Optional[Dict] = None,
         db: AsyncSession = None
     ) -> Message:
@@ -549,7 +545,6 @@ class ConversationService:
 
     async def _get_highlight_text(self, conversation_id: str, db: AsyncSession) -> str:
         conversation = await self._get_conversation(conversation_id, db)
-        print("Conversation Meta Data:", conversation.get("meta_data", {}))
         return conversation.get("meta_data", {}).get("highlight_text", "")
 
     async def _get_first_message(self, conversation_id: str, db: AsyncSession) -> Dict:
@@ -574,7 +569,6 @@ class ConversationService:
     async def _get_chunk(self, document_id: str, chunk_id: int, db: AsyncSession) -> Optional[Dict]:
         """Get a chunk by its sequence number within a document"""
         sequence = chunk_id
-        logger.info(f"Getting chunk {sequence} from document {document_id}")
         result = await db.execute(
             select(DocumentChunk)
             .where(

@@ -30,7 +30,6 @@ class AIService:
             stream: Whether to stream responses
         """
         try:
-            # Log context window
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
             for i, msg in enumerate(messages):
                 logger.info(f"Message {i} ({msg['role']}): {msg['content'][:500]}...")
@@ -124,7 +123,7 @@ class AIService:
                     "questions": questions
                 }
             ))
-            logger.info("Generated questions: " + str(questions))
+            # logger.info("Generated questions: " + str(questions))
             return questions
             
         except Exception as e:
@@ -174,7 +173,7 @@ class AIService:
                     "summary": summary
                 }
             ))
-            logger.info("Generated summary: " + summary)
+            # logger.info("Generated summary: " + summary)
             return summary
             
         except Exception as e:

@@ -134,7 +134,7 @@ class ConversationService:
             data = event.data
             document_id = event.document_id
             chunk_id = data["chunk_id"]
-            highlighted_text = data.get("highlighted_text", "")
+            highlight_text = data.get("highlight_text", "")
             
             # Get chunk
             chunk = await self._get_chunk(document_id=document_id, chunk_id=chunk_id, db=db)  # Pass db
@@ -144,12 +144,16 @@ class ConversationService:
                 document_id=document_id,
                 conversation_type="highlight",
                 chunk_id=chunk_id,
-                db=db  # Pass db
+                db=db,
+                meta_data={
+                    "highlight_text": highlight_text,
+                    "highlight_range": data["highlight_range"]
+                }
             )
             # Create initial system message
             system_prompt = self.prompt_manager.create_highlight_system_prompt(
                 chunk_text=chunk["content"],
-                highlighted_text=highlighted_text
+                highlight_text=highlight_text
             )
             await self._create_message(
                 conversation["id"], 
@@ -202,7 +206,7 @@ class ConversationService:
             # 2. Process the user message based on conversation type
             messages = []
             if conversation["type"] == "highlight":
-                highlighted_text = await self._get_highlighted_text(conversation["id"], db)  # Pass db
+                highlight_text = await self._get_highlight_text(conversation["id"], db)  # Pass db
                 processed_content = self.prompt_manager.create_highlight_user_prompt(
                     user_message=content
                 )
@@ -273,10 +277,10 @@ class ConversationService:
             
             # Generate questions based on conversation type
             if conversation["type"] == "highlight":
-                highlighted_text = await self._get_highlighted_text(conversation_id, db)  # Pass db
+                highlight_text = await self._get_highlight_text(conversation_id, db)  # Pass db
                 system_prompt, user_prompt = self.prompt_manager.create_highlight_question_prompts(
                     chunk_text=chunk["content"],
-                    highlighted_text=highlighted_text,
+                    highlight_text=highlight_text,
                     count=count,
                     previous_questions=previous_questions
                 )
@@ -334,7 +338,7 @@ class ConversationService:
             # Get conversations
             highlight_conversation = await self._get_conversation(highlight_conversation_id, db)
             chunk = await self._get_chunk(document_id=highlight_conversation["document_id"], chunk_id=highlight_conversation["chunk_id"], db=db)
-            highlighted_text = await self._get_highlighted_text(highlight_conversation_id, db)
+            highlight_text = await self._get_highlight_text(highlight_conversation_id, db)
             
             # Format conversation history for summary
             conversation_history = await self._format_conversation_history(highlight_conversation_id, db)
@@ -342,7 +346,7 @@ class ConversationService:
             # Generate summary using AI service
             system_prompt, user_prompt = self.prompt_manager.create_summary_prompts(
                 chunk_text=chunk["content"],
-                highlighted_text=highlighted_text,
+                highlight_text=highlight_text,
                 conversation_history=conversation_history
             )
             
@@ -475,7 +479,7 @@ class ConversationService:
     async def _format_conversation_history(self, conversation_id: str, db: AsyncSession) -> str:
         messages = await self.get_conversation_messages(conversation_id=conversation_id, db=db)
         return "\n".join([
-            f"{msg.role.upper()}: {msg.content}"
+            f"{msg['role'].upper()}: {msg['content']}"
             for msg in messages
         ])
 
@@ -543,10 +547,10 @@ class ConversationService:
         )
         return [q.to_dict() for q in result.scalars().all()]
 
-    async def _get_highlighted_text(self, conversation_id: str, db: AsyncSession) -> str:
+    async def _get_highlight_text(self, conversation_id: str, db: AsyncSession) -> str:
         conversation = await self._get_conversation(conversation_id, db)
         print("Conversation Meta Data:", conversation.get("meta_data", {}))
-        return conversation.get("meta_data", {}).get("highlighted_text", "")
+        return conversation.get("meta_data", {}).get("highlight_text", "")
 
     async def _get_first_message(self, conversation_id: str, db: AsyncSession) -> Dict:
         result = await db.execute(
@@ -588,13 +592,14 @@ class ConversationService:
         document_id: str,
         conversation_type: str,
         chunk_id: Optional[str] = None,
-        db: AsyncSession = None
+        db: AsyncSession = None,
+        meta_data: Optional[Dict] = None
     ) -> Dict:
         conversation = Conversation(
             document_id=document_id,
             chunk_id=chunk_id,
             type=conversation_type,
-            meta_data={}
+            meta_data=meta_data
         )
         db.add(conversation)
         await db.flush()

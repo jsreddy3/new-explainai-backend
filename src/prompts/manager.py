@@ -26,11 +26,11 @@ class PromptManager:
         """Create system prompt for main conversation"""
         return MAIN_SYSTEM_PROMPT.format(chunk_text=chunk_text)
         
-    def create_highlight_system_prompt(self, chunk_text: str, highlighted_text: str) -> str:
+    def create_highlight_system_prompt(self, chunk_text: str, highlight_text: str) -> str:
         """Create system prompt for highlight conversation"""
         return HIGHLIGHT_SYSTEM_PROMPT.format(
             chunk_text=chunk_text,
-            highlighted_text=highlighted_text
+            highlight_text=highlight_text
         )
         
     def create_main_user_prompt(self, user_message: str) -> str:
@@ -62,7 +62,7 @@ class PromptManager:
     def create_highlight_question_prompts(
         self, 
         chunk_text: str,
-        highlighted_text: str,
+        highlight_text: str,
         count: int,
         previous_questions: str = ""
     ) -> Tuple[str, str]:
@@ -70,7 +70,7 @@ class PromptManager:
         return (
             HIGHLIGHT_QUESTION_SYSTEM_PROMPT.format(
                 chunk_text=chunk_text,
-                highlighted_text=highlighted_text,
+                highlight_text=highlight_text,
                 previous_questions=previous_questions
             ),
             HIGHLIGHT_QUESTION_USER_PROMPT.format(count=count)
@@ -79,14 +79,14 @@ class PromptManager:
     def create_summary_prompts(
         self,
         chunk_text: str,
-        highlighted_text: str,
+        highlight_text: str,
         conversation_history: str
     ) -> Tuple[str, str]:
         """Create prompts for conversation summarization"""
         return (
             SUMMARY_SYSTEM_PROMPT.format(chunk_text=chunk_text),
             SUMMARY_USER_PROMPT.format(
-                highlighted_text=highlighted_text,
+                highlight_text=highlight_text,
                 conversation_history=conversation_history
             )
         )

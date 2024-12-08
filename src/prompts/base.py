@@ -26,7 +26,7 @@ SECTION CONTENT:
 {chunk_text}
 
 HIGHLIGHTED TEXT:
-{highlighted_text}
+{highlight_text}
 
 Your role is to:
 1. Help users understand this section in detail
@@ -74,7 +74,7 @@ SECTION CONTENT:
 {chunk_text}
 
 HIGHLIGHTED TEXT:
-"{highlighted_text}"
+"{highlight_text}"
 
 Your role is to:
 1. Create questions that probe deeply
@@ -132,7 +132,7 @@ Guidelines:
 SUMMARY_USER_PROMPT = """Here is the conversation to summarize:
 
 HIGHLIGHTED TEXT:
-"{highlighted_text}"
+"{highlight_text}"
 
 CONVERSATION:
 {conversation_history}

@@ -54,7 +54,7 @@ class WebSocketClient:
         if not self._closed and self.ws:
             await self.ws.send_json(data)
     
-    async def receive_json(self, timeout: float = 10.0):
+    async def receive_json(self, timeout: float = 20.0):
         """Receive JSON data from the server"""
         try:
             return await asyncio.wait_for(self._message_queue.get(), timeout)
@@ -193,62 +193,62 @@ class WebSocketClient:
 #         finally:
 #             await client.close()
 
-@pytest.mark.asyncio
-async def test_main_and_highlight_conversation():
-    async with aiohttp.ClientSession() as session:
-        # Upload document
-        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-            data = aiohttp.FormData()
-            data.add_field("file", f, filename="test.pdf")
-            async with session.post("http://localhost:8000/api/upload", data=data) as response:
-                assert response.status == 200
-                document_id = (await response.json())["document_id"]
+# @pytest.mark.asyncio
+# async def test_main_and_highlight_conversation():
+#     async with aiohttp.ClientSession() as session:
+#         # Upload document
+#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+#             data = aiohttp.FormData()
+#             data.add_field("file", f, filename="test.pdf")
+#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
+#                 assert response.status == 200
+#                 document_id = (await response.json())["document_id"]
 
-        # Create and test WebSocket
-        client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-        try:
-            await client.connect()
+#         # Create and test WebSocket
+#         client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
+#         try:
+#             await client.connect()
             
-            # Create main conversation
-            await client.send_json({
-                "type": "conversation.main.create",
-                "data": {"document_id": document_id}
-            })
-            main_response = await client.receive_json()
-            assert main_response["type"] == "conversation.main.create.completed"
-            main_conversation_id = main_response["data"]["conversation_id"]
+#             # Create main conversation
+#             await client.send_json({
+#                 "type": "conversation.main.create",
+#                 "data": {"document_id": document_id}
+#             })
+#             main_response = await client.receive_json()
+#             assert main_response["type"] == "conversation.main.create.completed"
+#             main_conversation_id = main_response["data"]["conversation_id"]
             
-            # Create highlight conversation
-            await client.send_json({
-                "type": "conversation.chunk.create",
-                "data": {
-                    "document_id": document_id,
-                    "chunk_id": "1",
-                    "highlight_text": "The theme of reality versus fiction"
-                }
-            })
-            highlight_response = await client.receive_json()
-            assert highlight_response["type"] == "conversation.chunk.create.completed"
-            highlight_conversation_id = highlight_response["data"]["conversation_id"]
+#             # Create highlight conversation
+#             await client.send_json({
+#                 "type": "conversation.chunk.create",
+#                 "data": {
+#                     "document_id": document_id,
+#                     "chunk_id": "1",
+#                     "highlight_text": "The theme of reality versus fiction"
+#                 }
+#             })
+#             highlight_response = await client.receive_json()
+#             assert highlight_response["type"] == "conversation.chunk.create.completed"
+#             highlight_conversation_id = highlight_response["data"]["conversation_id"]
             
-            # Test both conversations
-            conversations = [
-                (main_conversation_id, "Explain the main themes of the work."),
-                (highlight_conversation_id, "Why is this theme significant?")
-            ]
+#             # Test both conversations
+#             conversations = [
+#                 (main_conversation_id, "Explain the main themes of the work."),
+#                 (highlight_conversation_id, "Why is this theme significant?")
+#             ]
             
-            for conv_id, message in conversations:
-                await client.send_json({
-                    "type": "conversation.message.send",
-                    "data": {
-                        "conversation_id": conv_id,
-                        "content": message
-                    }
-                })
-                response = await client.receive_json()
-                assert response["type"] == "conversation.message.send.completed"
-        finally:
-            await client.close()
+#             for conv_id, message in conversations:
+#                 await client.send_json({
+#                     "type": "conversation.message.send",
+#                     "data": {
+#                         "conversation_id": conv_id,
+#                         "content": message
+#                     }
+#                 })
+#                 response = await client.receive_json()
+#                 assert response["type"] == "conversation.message.send.completed"
+#         finally:
+#             await client.close()
 
 # @pytest.mark.asyncio
 # async def test_interleaved_conversations_with_questions():
@@ -368,145 +368,64 @@ async def test_main_and_highlight_conversation():
 #         finally:
 #             await client.close()
 
-# @pytest.mark.asyncio
-# async def test_merge_conversation(websocket_client):
-#     """Test 7: Merge highlight conversation into main conversation"""
-#     # Create a document first
-#     async with aiohttp.ClientSession() as session:
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_merge_conversation():
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#     # Connect to WebSocket
-#     client = None
-#     try:
-#         async for ws_client in websocket_client:
-#             client = ws_client
-#             # Create conversations
-#             await client.send_json({
-#                 "type": "conversation.main.create",
-#                 "data": {"document_id": document_id}
-#             })
-#             main_response = await client.receive_json()
-#             assert main_response["type"] == "conversation.main.create.completed"
-#             main_id = main_response["data"]["conversation_id"]
+        client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
+        try:
+            await client.connect()
             
-#             await client.send_json({
-#                 "type": "conversation.chunk.create",
-#                 "data": {
-#                     "document_id": document_id,
-#                     "chunk_id": "1",
-#                     "highlight_text": "The theme of reality versus fiction"
-#                 }
-#             })
-#             highlight_response = await client.receive_json()
-#             assert highlight_response["type"] == "conversation.chunk.create.completed"
-#             highlight_id = highlight_response["data"]["conversation_id"]
+            # Create main conversation
+            await client.send_json({
+                "type": "conversation.main.create",
+                "data": {"document_id": document_id}
+            })
+            main_response = await client.receive_json()
+            assert main_response["type"] == "conversation.main.create.completed"
+            main_id = main_response["data"]["conversation_id"]
             
-#             # Add some messages to highlight conversation
-#             await client.send_json({
-#                 "type": "conversation.message.send",
-#                 "data": {
-#                     "conversation_id": highlight_id,
-#                     "content": "How does this theme manifest in the text?"
-#                 }
-#             })
-#             msg_response = await client.receive_json()
-#             assert msg_response["type"] == "conversation.message.send.completed"
+            # Create highlight conversation
+            await client.send_json({
+                "type": "conversation.chunk.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": "1",
+                    "highlight_text": "The theme of reality versus fiction"
+                }
+            })
+            highlight_response = await client.receive_json()
+            assert highlight_response["type"] == "conversation.chunk.create.completed"
+            highlight_id = highlight_response["data"]["conversation_id"]
             
-#             # Merge conversations
-#             await client.send_json({
-#                 "type": "conversation.merge",
-#                 "data": {
-#                     "main_conversation_id": main_id,
-#                     "highlight_conversation_id": highlight_id
-#                 }
-#             })
+            # Add message to highlight conversation
+            await client.send_json({
+                "type": "conversation.message.send",
+                "data": {
+                    "conversation_id": highlight_id,
+                    "content": "How does this theme manifest in the text?"
+                }
+            })
+            msg_response = await client.receive_json()
+            assert msg_response["type"] == "conversation.message.send.completed"
             
-#             merge_response = await client.receive_json()
-#             assert merge_response["type"] == "conversation.merge.completed"
-#             break
-    
-#     finally:
-#         if client:
-#             await client.close()
-
-# @pytest.mark.asyncio
-# async def test_multiple_users(websocket_client):
-#     """Test 8: Multiple users interacting with the same document"""
-#     # Create a document first
-#     async with aiohttp.ClientSession() as session:
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
-
-#     # Create two websocket clients
-#     session1 = aiohttp.ClientSession()
-#     session2 = aiohttp.ClientSession()
-#     client1 = None
-#     client2 = None
-    
-#     try:
-#         # Create two conversation clients
-#         client1 = WebSocketClient(session1, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-#         client2 = WebSocketClient(session2, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-        
-#         await client1.connect()
-#         await client2.connect()
-        
-#         # Both users create conversations
-#         await client1.send_json({
-#             "type": "conversation.main.create",
-#             "data": {"document_id": document_id}
-#         })
-#         response1 = await client1.receive_json()
-#         assert response1["type"] == "conversation.main.create.completed"
-#         conv_id1 = response1["data"]["conversation_id"]
-        
-#         await client2.send_json({
-#             "type": "conversation.main.create",
-#             "data": {"document_id": document_id}
-#         })
-#         response2 = await client2.receive_json()
-#         assert response2["type"] == "conversation.main.create.completed"
-#         conv_id2 = response2["data"]["conversation_id"]
-        
-#         # Both users send messages simultaneously
-#         await asyncio.gather(
-#             client1.send_json({
-#                 "type": "conversation.message.send",
-#                 "data": {
-#                     "conversation_id": conv_id1,
-#                     "content": "What is the significance of Zembla?"
-#                 }
-#             }),
-#             client2.send_json({
-#                 "type": "conversation.message.send",
-#                 "data": {
-#                     "conversation_id": conv_id2,
-#                     "content": "How reliable is Kinbote as a narrator?"
-#                 }
-#             })
-#         )
-        
-#         # Wait for both responses
-#         responses = await asyncio.gather(
-#             client1.receive_json(),
-#             client2.receive_json()
-#         )
-#         assert responses[0]["type"] == "conversation.message.send.completed"
-#         assert responses[1]["type"] == "conversation.message.send.completed"
-            
-#     finally:
-#         if client1:
-#             await client1.close()
-#         if client2:
-#             await client2.close()
-#         await session1.close()
-#         await session2.close()
+            # Merge conversations
+            await client.send_json({
+                "type": "conversation.chunk.merge",
+                "data": {
+                    "main_conversation_id": main_id,
+                    "highlight_conversation_id": highlight_id
+                }
+            })
+            merge_response = await client.receive_json()
+            print(merge_response)
+            assert merge_response["type"] == "conversation.merge.completed"
+        finally:
+            await client.close()

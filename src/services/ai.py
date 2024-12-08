@@ -112,7 +112,9 @@ class AIService:
             )
             
             # Parse questions from response
-            questions = [q.strip() for q in response.split('\n') if q.strip()]
+            content = response.choices[0].message.content
+            questions = [q.strip() for q in content.split('\n') if q.strip()]
+            
             # Emit completion event
             await event_bus.emit(Event(
                 type="questions.completed",
@@ -122,6 +124,7 @@ class AIService:
                     "questions": questions
                 }
             ))
+            logger.info("Generated questions: " + str(questions))
             return questions
             
         except Exception as e:
@@ -161,7 +164,7 @@ class AIService:
                 ],
                 stream=False
             )
-            summary = response.strip()
+            summary = response.choices[0].message.content.strip()
             # Emit completion event
             await event_bus.emit(Event(
                 type="summary.completed",
@@ -171,6 +174,7 @@ class AIService:
                     "summary": summary
                 }
             ))
+            logger.info("Generated summary: " + summary)
             return summary
             
         except Exception as e:

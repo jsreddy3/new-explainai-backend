@@ -88,7 +88,7 @@ class ConversationService:
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
         logger.info("Handling create main conversation")
         try:
-            document_id = event.data["document_id"]
+            document_id = event.document_id
             
             # Get first chunk
             first_chunk = await self._get_first_chunk(document_id, db)  # Pass db
@@ -97,23 +97,23 @@ class ConversationService:
             conversation = await self._create_conversation(
                 document_id=document_id,
                 conversation_type="main",
-                chunk_id=None,
+                chunk_id=0,
                 db=db  # Pass db
             )
             
             # Create initial system message
             system_prompt = self.prompt_manager.create_main_system_prompt(first_chunk.content)
-            await self._create_message(
+            message_obj = await self._create_message(
                 conversation.id, 
                 system_prompt, 
                 "system",
-                first_chunk.id,
+                0,
                 db=db  # Pass db
             )
             
             await db.commit()
             
-            logger.info(f"Main conversation created - Document: {document_id}, Conversation: {conversation.id}")
+            logger.info(f"Main conversation created - Document: {document_id}, Conversation: {conversation.id}, System message: {message_obj.to_dict()}")
             await event_bus.emit(Event(
                 type="conversation.main.create.completed",
                 document_id=document_id,
@@ -130,14 +130,15 @@ class ConversationService:
             ))
 
     async def handle_create_chunk_conversation(self, event: Event, db: AsyncSession):
+        logger.info("Handling create chunk conversation for document: {}".format(event.data))
         try:
             data = event.data
-            document_id = data["document_id"]
+            document_id = event.document_id
             chunk_id = data["chunk_id"]
             highlighted_text = data.get("highlighted_text", "")
             
             # Get chunk
-            chunk = await self._get_chunk(chunk_id, db)  # Pass db
+            chunk = await self._get_chunk(document_id=document_id, chunk_id=chunk_id, db=db)  # Pass db
             
             # Create conversation
             conversation = await self._create_conversation(
@@ -188,7 +189,7 @@ class ConversationService:
             
             # Get conversation
             conversation = await self._get_conversation(conversation_id, db)  # Pass db
-            chunk = await self._get_chunk(conversation.chunk_id, db) if conversation.chunk_id else None  # Pass db
+            chunk = await self._get_chunk(document_id=conversation.document_id, chunk_id=conversation.chunk_id, db=db) if conversation.chunk_id else None  # Pass db
             
             # 1. Store raw user message in DB
             message = await self._create_message(
@@ -199,28 +200,31 @@ class ConversationService:
                 db=db  # Pass db
             )
             await db.commit()
+
+            logger.info(f"Message stored in DB")
             
             # 2. Process the user message based on conversation type
+            messages = []
             if conversation.type == "highlight":
                 highlighted_text = await self._get_highlighted_text(conversation_id, db)  # Pass db
                 processed_content = self.prompt_manager.create_highlight_user_prompt(
-                    chunk_text=chunk.content,
-                    highlighted_text=highlighted_text,
                     user_message=content
                 )
+                message_objects = await self.get_conversation_messages(conversation_id, db)
+                for msg in message_objects:
+                    messages.append(msg.to_dict())
             else:
                 processed_content = self.prompt_manager.create_main_user_prompt(
                     user_message=content
                 )
-            
-            # 3. Get all messages including system prompt and chunk switches
-            messages = await self._get_messages_with_chunk_switches(conversation, db)  # Pass db
-            
-            # 4. Replace the last message's content with processed version
+                messages = await self._get_messages_with_chunk_switches(conversation, db)  # Pass db
+
+            logger.info(f"Message processed - Document: {document_id}, Conversation: {conversation_id}, Processed content: {processed_content}")
+
             if messages:
                 messages[-1]["content"] = processed_content
             
-            logger.info(f"Calling AI service chat - Document: {document_id}, Conversation: {conversation_id}")
+            logger.info(f"Calling AI service chat - Document: {document_id}, Conversation: {conversation_id}, Messages: {messages}")
             
             # 5. Send entire messages array to AI service
             response = await self.ai_service.chat(
@@ -269,7 +273,7 @@ class ConversationService:
             
             # Get conversation and chunk
             conversation = await self._get_conversation(conversation_id, db)  # Pass db
-            chunk = await self._get_chunk(conversation.chunk_id, db) if conversation.chunk_id else None  # Pass db
+            chunk = await self._get_chunk(document_id=conversation.document_id, chunk_id=conversation.chunk_id, db=db) if conversation.chunk_id else None  # Pass db
             
             # Get previous questions
             previous_questions = await self._get_previous_questions(conversation_id, db)  # Pass db
@@ -336,7 +340,7 @@ class ConversationService:
             
             # Get conversations
             highlight_conversation = await self._get_conversation(highlight_conversation_id, db)
-            chunk = await self._get_chunk(highlight_conversation.chunk_id, db)
+            chunk = await self._get_chunk(document_id=highlight_conversation.document_id, chunk_id=highlight_conversation.chunk_id, db=db)
             highlighted_text = await self._get_highlighted_text(highlight_conversation_id, db)
             
             # Format conversation history for summary
@@ -435,7 +439,8 @@ class ConversationService:
         added_content_chunks = set()
         
         for msg in reversed(messages):
-            current_chunk_id = msg.meta_data.get("chunk_id") if msg.meta_data else None
+            msg = msg.to_dict()
+            current_chunk_id = msg.get("chunk_id", "")
             
             if current_chunk_id and current_chunk_id != last_chunk_id:
                 switch_msg = {
@@ -448,15 +453,14 @@ class ConversationService:
                 }
                 
                 if current_chunk_id not in added_content_chunks:
-                    chunk = await self._get_chunk(current_chunk_id, db)  # Pass db
+                    chunk = await self._get_chunk(document_id=conversation.document_id, chunk_id=current_chunk_id, db=db)
                     switch_msg["content"] += f", chunkText: {chunk.content}"
                     added_content_chunks.add(current_chunk_id)
                 
                 processed_messages.insert(0, ack_msg)
                 processed_messages.insert(0, switch_msg)
                 last_chunk_id = current_chunk_id
-            
-            processed_messages.insert(0, msg.to_dict())
+            processed_messages.insert(0, msg)
             
         return processed_messages
 
@@ -518,6 +522,8 @@ class ConversationService:
             .offset(offset)
             .limit(limit)
         )
+        for msg in result.scalars().all():
+            print("Conversation message:", msg.to_dict())
         return result.scalars().all()
 
     async def get_conversation_questions(
@@ -541,9 +547,20 @@ class ConversationService:
         )
         return result.scalar_one()
 
-    async def _get_chunk(self, chunk_id: str, db: AsyncSession) -> DocumentChunk:
-        logger.info(f"Getting chunk: {chunk_id}")
-        return await db.get(DocumentChunk, chunk_id)
+    async def _get_chunk(self, document_id: str, chunk_id: int, db: AsyncSession) -> Optional[DocumentChunk]:
+        """Get a chunk by its sequence number within a document"""
+        sequence = chunk_id
+        logger.info(f"Getting chunk {sequence} from document {document_id}")
+        result = await db.execute(
+            select(DocumentChunk)
+            .where(
+                and_(
+                    DocumentChunk.document_id == document_id,
+                    DocumentChunk.sequence == sequence
+                )
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def _get_conversation(self, conversation_id: str, db: AsyncSession) -> Conversation:
         return await db.get(Conversation, conversation_id)
@@ -558,6 +575,7 @@ class ConversationService:
 
     async def _get_highlighted_text(self, conversation_id: str, db: AsyncSession) -> str:
         conversation = await self._get_conversation(conversation_id, db)
+        print("Conversation Meta Data:", conversation.meta_data)
         return conversation.meta_data.get("highlighted_text", "")
 
     async def _get_first_message(self, conversation_id: str, db: AsyncSession) -> Message:

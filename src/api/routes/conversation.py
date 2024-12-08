@@ -114,14 +114,14 @@ class WebSocketHandler:
             type="conversation.main.create.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
-            data={"document_id": self.document_id}
+            data={}
         ))
 
     async def handle_create_chunk_conversation(self, data: Dict):
         """Handle chunk conversation creation request"""
         chunk_id = data.get("chunk_id")
         highlight_range = data.get("highlight_range", {})
-        highlighted_text = data.get("highlighted_text", "")
+        highlight_text = data.get("highlight_text", "")
 
         if not chunk_id:
             await self.websocket.send_json({"error": "Missing chunk_id"})
@@ -129,12 +129,12 @@ class WebSocketHandler:
 
         await event_bus.emit(Event(
             type="conversation.chunk.create.requested",
-            document_id=self.document_id,
             connection_id=self.connection_id,
+            document_id=self.document_id,
             data={
                 "chunk_id": chunk_id,
                 "highlight_range": highlight_range,
-                "highlighted_text": highlighted_text
+                "highlight_text": highlight_text
             }
         ))
 
@@ -172,7 +172,6 @@ class WebSocketHandler:
             document_id=self.document_id,
             connection_id=self.connection_id,
             data={
-                "document_id": self.document_id,
                 "conversation_id": conversation_id,
                 "count": count,
                 "chunk_id": data.get("chunk_id")
@@ -231,7 +230,6 @@ class WebSocketHandler:
             document_id=self.document_id,
             connection_id=self.connection_id,
             data={
-                "document_id": self.document_id,
                 "chunk_id": data.get("chunk_id")
             }
         ))
@@ -242,7 +240,7 @@ class WebSocketHandler:
             type="document.chunk.list.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
-            data={"document_id": self.document_id}
+            data={}
         ))
 
     async def process_message(self, message: Dict):

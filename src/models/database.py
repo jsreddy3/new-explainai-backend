@@ -48,6 +48,16 @@ class DocumentChunk(Base):
     document = relationship("Document", back_populates="chunks")
     conversations = relationship("Conversation", back_populates="chunk")
 
+    def to_dict(self):
+        """Convert chunk to dictionary"""
+        return {
+            "id": self.id,
+            "document_id": self.document_id,
+            "content": self.content,
+            "sequence": self.sequence,
+            "meta_data": self.meta_data
+        }
+
 class Conversation(Base):
     __tablename__ = 'conversations'
     

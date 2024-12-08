@@ -244,52 +244,51 @@ class WebSocketHandler:
         ))
 
     async def process_message(self, message: Dict):
-        """Process incoming WebSocket message using match-case"""
+        """Process incoming WebSocket message"""
         print("Processing message: ", message)
         msg_type = message.get("type")
         data = message.get("data", {})
 
-        match msg_type:
-            case "conversation.main.create":
-                await self.handle_create_main_conversation(data)
-            case "conversation.chunk.create":
-                await self.handle_create_chunk_conversation(data)
-            case "conversation.chunk.merge":
-                # Convert chunk merge request to regular merge request
-                chunk_conversation_id = data.get("conversation_ids", [])[0]
-                if not chunk_conversation_id:
-                    await self.websocket.send_json({"error": "Missing conversation ID to merge"})
-                    return
-                
-                # Find main conversation
-                result = await self.db.execute(
-                    select(Conversation).where(
-                        and_(
-                            Conversation.document_id == self.document_id,
-                            Conversation.chunk_id.is_(None)
-                        )
+        if msg_type == "conversation.main.create":
+            await self.handle_create_main_conversation(data)
+        elif msg_type == "conversation.chunk.create":
+            await self.handle_create_chunk_conversation(data)
+        elif msg_type == "conversation.chunk.merge":
+            # Convert chunk merge request to regular merge request
+            chunk_conversation_id = data.get("conversation_ids", [])[0]
+            if not chunk_conversation_id:
+                await self.websocket.send_json({"error": "Missing conversation ID to merge"})
+                return
+            
+            # Find main conversation
+            result = await self.db.execute(
+                select(Conversation).where(
+                    and_(
+                        Conversation.document_id == self.document_id,
+                        Conversation.chunk_id.is_(None)
                     )
                 )
-                main_conversation = result.scalar_one_or_none()
-                if not main_conversation:
-                    await self.websocket.send_json({"error": "No main conversation found"})
-                    return
+            )
+            main_conversation = result.scalar_one_or_none()
+            if not main_conversation:
+                await self.websocket.send_json({"error": "No main conversation found"})
+                return
 
-                # Use existing merge handler with the correct IDs
-                await self.handle_merge_conversations({
-                    "main_conversation_id": str(main_conversation.id),
-                    "highlight_conversation_id": chunk_conversation_id
-                })
-            case "conversation.message.send":
-                await self.handle_send_message(data)
-            case "conversation.list":
-                await self.handle_list_conversations(data)
-            case "conversation.questions.generate":
-                await self.handle_generate_questions(data)
-            case "document.chunk.list":
-                await self.handle_list_chunks(data)
-            case _:
-                await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
+            # Use existing merge handler with the correct IDs
+            await self.handle_merge_conversations({
+                "main_conversation_id": str(main_conversation.id),
+                "highlight_conversation_id": chunk_conversation_id
+            })
+        elif msg_type == "conversation.message.send":
+            await self.handle_send_message(data)
+        elif msg_type == "conversation.list":
+            await self.handle_list_conversations(data)
+        elif msg_type == "conversation.questions.generate":
+            await self.handle_generate_questions(data)
+        elif msg_type == "document.chunk.list":
+            await self.handle_list_chunks(data)
+        else:
+            await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
                 
 @router.websocket("/conversations/stream/{document_id}")
 async def conversation_stream(

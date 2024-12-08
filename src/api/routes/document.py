@@ -137,21 +137,20 @@ class WebSocketHandler:
         ))
 
     async def process_message(self, message: Dict):
-        """Process incoming WebSocket message using match-case"""
+        """Process incoming WebSocket message"""
         msg_type = message.get("type")
         data = message.get("data", {})
 
-        match msg_type:
-            case "document.chunk.list":
-                await self.handle_list_chunks(data)
-            case "document.metadata":
-                await self.handle_get_metadata(data)
-            case "document.navigate":
-                await self.handle_navigate_chunks(data)
-            case "document.process":
-                await self.handle_process_document(data)
-            case _:
-                await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
+        if msg_type == "document.chunk.list":
+            await self.handle_list_chunks(data)
+        elif msg_type == "document.metadata":
+            await self.handle_get_metadata(data)
+        elif msg_type == "document.navigate":
+            await self.handle_navigate_chunks(data)
+        elif msg_type == "document.process":
+            await self.handle_process_document(data)
+        else:
+            await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
 
     async def cleanup(self):
         """Cleanup resources when connection is closed"""

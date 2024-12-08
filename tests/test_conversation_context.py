@@ -75,298 +75,298 @@ class WebSocketClient:
             await self.ws.close()
             self.ws = None
 
-# @pytest.mark.asyncio
-# async def test_document_upload_and_websocket():
-#     # Create session
-#     async with aiohttp.ClientSession() as session:
-#         # Upload document
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_document_upload_and_websocket():
+    # Create session
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#         # Create and connect WebSocket client
-#         client = WebSocketClient(session, f"ws://localhost:8000/api/documents/stream/{document_id}")
-#         try:
-#             await client.connect()
+        # Create and connect WebSocket client
+        client = WebSocketClient(session, f"ws://localhost:8000/api/documents/stream/{document_id}")
+        try:
+            await client.connect()
             
-#             # Test metadata request
-#             await client.send_json({
-#                 "type": "document.metadata",
-#                 "data": {"document_id": document_id}
-#             })
+            # Test metadata request
+            await client.send_json({
+                "type": "document.metadata",
+                "data": {"document_id": document_id}
+            })
             
-#             response = await client.receive_json()
-#             assert response["type"] == "document.metadata.completed"
+            response = await client.receive_json()
+            assert response["type"] == "document.metadata.completed"
         
-#         finally:
-#             await client.close()
+        finally:
+            await client.close()
 
-# @pytest.mark.asyncio
-# async def test_document_upload_and_websocket():
-#     async with aiohttp.ClientSession() as session:
-#         # Upload document
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_document_upload_and_websocket():
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#         # Create and test WebSocket
-#         client = WebSocketClient(session, f"ws://localhost:8000/api/documents/stream/{document_id}")
-#         try:
-#             await client.connect()
-#             await client.send_json({
-#                 "type": "document.metadata",
-#                 "data": {"document_id": document_id}
-#             })
-#             response = await client.receive_json()
-#             assert response["type"] == "document.metadata.completed"
-#         finally:
-#             await client.close()
+        # Create and test WebSocket
+        client = WebSocketClient(session, f"ws://localhost:8000/api/documents/stream/{document_id}")
+        try:
+            await client.connect()
+            await client.send_json({
+                "type": "document.metadata",
+                "data": {"document_id": document_id}
+            })
+            response = await client.receive_json()
+            assert response["type"] == "document.metadata.completed"
+        finally:
+            await client.close()
 
-# @pytest.mark.asyncio
-# async def test_create_conversation():
-#     async with aiohttp.ClientSession() as session:
-#         # Upload document
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_create_conversation():
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#         # Create and test WebSocket
-#         client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-#         try:
-#             await client.connect()
-#             await client.send_json({
-#                 "type": "conversation.main.create",
-#                 "data": {"document_id": document_id}
-#             })
-#             response = await client.receive_json()
-#             assert response["type"] == "conversation.main.create.completed"
-#             assert "conversation_id" in response["data"]
-#         finally:
-#             await client.close()
+        # Create and test WebSocket
+        client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
+        try:
+            await client.connect()
+            await client.send_json({
+                "type": "conversation.main.create",
+                "data": {"document_id": document_id}
+            })
+            response = await client.receive_json()
+            assert response["type"] == "conversation.main.create.completed"
+            assert "conversation_id" in response["data"]
+        finally:
+            await client.close()
 
-# @pytest.mark.asyncio
-# async def test_main_conversation_message():
-#     async with aiohttp.ClientSession() as session:
-#         # Upload document
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_main_conversation_message():
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#         # Create and test WebSocket
-#         client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-#         try:
-#             await client.connect()
+        # Create and test WebSocket
+        client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
+        try:
+            await client.connect()
             
-#             # Create conversation
-#             await client.send_json({
-#                 "type": "conversation.main.create",
-#                 "data": {"document_id": document_id}
-#             })
-#             response = await client.receive_json()
-#             print("CREATE RESPONSE:", response)
-#             assert response["type"] == "conversation.main.create.completed"
-#             conversation_id = response["data"]["conversation_id"]
+            # Create conversation
+            await client.send_json({
+                "type": "conversation.main.create",
+                "data": {"document_id": document_id}
+            })
+            response = await client.receive_json()
+            print("CREATE RESPONSE:", response)
+            assert response["type"] == "conversation.main.create.completed"
+            conversation_id = response["data"]["conversation_id"]
 
-#             # Send message
-#             await client.send_json({
-#                 "type": "conversation.message.send",
-#                 "data": {
-#                     "conversation_id": conversation_id,
-#                     "content": "What is the main theme of Pale Fire?"
-#                 }
-#             })
-#             response = await client.receive_json()
-#             print("MESSAGE RESPONSE:", response)
-#             assert response["type"] == "conversation.message.send.completed"
-#         finally:
-#             await client.close()
+            # Send message
+            await client.send_json({
+                "type": "conversation.message.send",
+                "data": {
+                    "conversation_id": conversation_id,
+                    "content": "What is the main theme of Pale Fire?"
+                }
+            })
+            response = await client.receive_json()
+            print("MESSAGE RESPONSE:", response)
+            assert response["type"] == "conversation.message.send.completed"
+        finally:
+            await client.close()
 
-# @pytest.mark.asyncio
-# async def test_main_and_highlight_conversation():
-#     async with aiohttp.ClientSession() as session:
-#         # Upload document
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_main_and_highlight_conversation():
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#         # Create and test WebSocket
-#         client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-#         try:
-#             await client.connect()
+        # Create and test WebSocket
+        client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
+        try:
+            await client.connect()
             
-#             # Create main conversation
-#             await client.send_json({
-#                 "type": "conversation.main.create",
-#                 "data": {"document_id": document_id}
-#             })
-#             main_response = await client.receive_json()
-#             assert main_response["type"] == "conversation.main.create.completed"
-#             main_conversation_id = main_response["data"]["conversation_id"]
+            # Create main conversation
+            await client.send_json({
+                "type": "conversation.main.create",
+                "data": {"document_id": document_id}
+            })
+            main_response = await client.receive_json()
+            assert main_response["type"] == "conversation.main.create.completed"
+            main_conversation_id = main_response["data"]["conversation_id"]
             
-#             # Create highlight conversation
-#             await client.send_json({
-#                 "type": "conversation.chunk.create",
-#                 "data": {
-#                     "document_id": document_id,
-#                     "chunk_id": "1",
-#                     "highlight_text": "The theme of reality versus fiction"
-#                 }
-#             })
-#             highlight_response = await client.receive_json()
-#             assert highlight_response["type"] == "conversation.chunk.create.completed"
-#             highlight_conversation_id = highlight_response["data"]["conversation_id"]
+            # Create highlight conversation
+            await client.send_json({
+                "type": "conversation.chunk.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": "1",
+                    "highlight_text": "The theme of reality versus fiction"
+                }
+            })
+            highlight_response = await client.receive_json()
+            assert highlight_response["type"] == "conversation.chunk.create.completed"
+            highlight_conversation_id = highlight_response["data"]["conversation_id"]
             
-#             # Test both conversations
-#             conversations = [
-#                 (main_conversation_id, "Explain the main themes of the work."),
-#                 (highlight_conversation_id, "Why is this theme significant?")
-#             ]
+            # Test both conversations
+            conversations = [
+                (main_conversation_id, "Explain the main themes of the work."),
+                (highlight_conversation_id, "Why is this theme significant?")
+            ]
             
-#             for conv_id, message in conversations:
-#                 await client.send_json({
-#                     "type": "conversation.message.send",
-#                     "data": {
-#                         "conversation_id": conv_id,
-#                         "content": message
-#                     }
-#                 })
-#                 response = await client.receive_json()
-#                 assert response["type"] == "conversation.message.send.completed"
-#         finally:
-#             await client.close()
+            for conv_id, message in conversations:
+                await client.send_json({
+                    "type": "conversation.message.send",
+                    "data": {
+                        "conversation_id": conv_id,
+                        "content": message
+                    }
+                })
+                response = await client.receive_json()
+                assert response["type"] == "conversation.message.send.completed"
+        finally:
+            await client.close()
 
-# @pytest.mark.asyncio
-# async def test_interleaved_conversations_with_questions():
-#     async with aiohttp.ClientSession() as session:
-#         # Upload document
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_interleaved_conversations_with_questions():
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#         client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-#         try:
-#             await client.connect()
+        client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
+        try:
+            await client.connect()
             
-#             # Create conversations
-#             await client.send_json({
-#                 "type": "conversation.main.create",
-#                 "data": {"document_id": document_id}
-#             })
-#             main_response = await client.receive_json()
-#             assert main_response["type"] == "conversation.main.create.completed"
-#             main_id = main_response["data"]["conversation_id"]
+            # Create conversations
+            await client.send_json({
+                "type": "conversation.main.create",
+                "data": {"document_id": document_id}
+            })
+            main_response = await client.receive_json()
+            assert main_response["type"] == "conversation.main.create.completed"
+            main_id = main_response["data"]["conversation_id"]
             
-#             await client.send_json({
-#                 "type": "conversation.chunk.create",
-#                 "data": {
-#                     "document_id": document_id,
-#                     "chunk_id": "1",
-#                     "highlight_text": "The theme of reality versus fiction"
-#                 }
-#             })
-#             highlight_response = await client.receive_json()
-#             assert highlight_response["type"] == "conversation.chunk.create.completed"
-#             highlight_id = highlight_response["data"]["conversation_id"]
+            await client.send_json({
+                "type": "conversation.chunk.create",
+                "data": {
+                    "document_id": document_id,
+                    "chunk_id": "1",
+                    "highlight_text": "The theme of reality versus fiction"
+                }
+            })
+            highlight_response = await client.receive_json()
+            assert highlight_response["type"] == "conversation.chunk.create.completed"
+            highlight_id = highlight_response["data"]["conversation_id"]
             
-#             # Test interleaved messages and questions
-#             test_sequences = [
-#                 (main_id, "Tell me about the structure."),
-#                 (highlight_id, "Explain this theme."),
-#                 (main_id, "How does the author develop characters?")
-#             ]
+            # Test interleaved messages and questions
+            test_sequences = [
+                (main_id, "Tell me about the structure."),
+                (highlight_id, "Explain this theme."),
+                (main_id, "How does the author develop characters?")
+            ]
             
-#             for conv_id, message in test_sequences:
-#                 # Send message
-#                 await client.send_json({
-#                     "type": "conversation.message.send",
-#                     "data": {
-#                         "conversation_id": conv_id,
-#                         "content": message
-#                     }
-#                 })
-#                 response = await client.receive_json()
-#                 assert response["type"] == "conversation.message.send.completed"
+            for conv_id, message in test_sequences:
+                # Send message
+                await client.send_json({
+                    "type": "conversation.message.send",
+                    "data": {
+                        "conversation_id": conv_id,
+                        "content": message
+                    }
+                })
+                response = await client.receive_json()
+                assert response["type"] == "conversation.message.send.completed"
                 
-#                 # Generate questions
-#                 await client.send_json({
-#                     "type": "conversation.questions.generate",
-#                     "data": {"conversation_id": conv_id}
-#                 })
-#                 response = await client.receive_json()
-#                 assert response["type"] == "conversation.questions.generate.completed"
-#         finally:
-#             await client.close()
+                # Generate questions
+                await client.send_json({
+                    "type": "conversation.questions.generate",
+                    "data": {"conversation_id": conv_id}
+                })
+                response = await client.receive_json()
+                assert response["type"] == "conversation.questions.generate.completed"
+        finally:
+            await client.close()
 
-# @pytest.mark.asyncio
-# async def test_repeated_question_generation():
-#     async with aiohttp.ClientSession() as session:
-#         # Upload document
-#         with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
-#             data = aiohttp.FormData()
-#             data.add_field("file", f, filename="test.pdf")
-#             async with session.post("http://localhost:8000/api/upload", data=data) as response:
-#                 assert response.status == 200
-#                 document_id = (await response.json())["document_id"]
+@pytest.mark.asyncio
+async def test_repeated_question_generation():
+    async with aiohttp.ClientSession() as session:
+        # Upload document
+        with open("tests/pdfs/pale fire presentation.pdf", "rb") as f:
+            data = aiohttp.FormData()
+            data.add_field("file", f, filename="test.pdf")
+            async with session.post("http://localhost:8000/api/upload", data=data) as response:
+                assert response.status == 200
+                document_id = (await response.json())["document_id"]
 
-#         client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
-#         try:
-#             await client.connect()
+        client = WebSocketClient(session, f"ws://localhost:8000/api/conversations/stream/{document_id}")
+        try:
+            await client.connect()
             
-#             # Create conversation
-#             await client.send_json({
-#                 "type": "conversation.main.create",
-#                 "data": {"document_id": document_id}
-#             })
-#             response = await client.receive_json()
-#             assert response["type"] == "conversation.main.create.completed"
-#             conversation_id = response["data"]["conversation_id"]
+            # Create conversation
+            await client.send_json({
+                "type": "conversation.main.create",
+                "data": {"document_id": document_id}
+            })
+            response = await client.receive_json()
+            assert response["type"] == "conversation.main.create.completed"
+            conversation_id = response["data"]["conversation_id"]
             
-#             # Test messages and question generation
-#             test_messages = [
-#                 "What is the relationship between Shade and Kinbote?",
-#                 "How does the commentary relate to the poem?",
-#                 "What role does unreliable narration play?"
-#             ]
+            # Test messages and question generation
+            test_messages = [
+                "What is the relationship between Shade and Kinbote?",
+                "How does the commentary relate to the poem?",
+                "What role does unreliable narration play?"
+            ]
             
-#             for message in test_messages:
-#                 # Send message
-#                 await client.send_json({
-#                     "type": "conversation.message.send",
-#                     "data": {
-#                         "conversation_id": conversation_id,
-#                         "content": message
-#                     }
-#                 })
-#                 response = await client.receive_json()
-#                 assert response["type"] == "conversation.message.send.completed"
+            for message in test_messages:
+                # Send message
+                await client.send_json({
+                    "type": "conversation.message.send",
+                    "data": {
+                        "conversation_id": conversation_id,
+                        "content": message
+                    }
+                })
+                response = await client.receive_json()
+                assert response["type"] == "conversation.message.send.completed"
                 
-#                 # Generate questions
-#                 await client.send_json({
-#                     "type": "conversation.questions.generate",
-#                     "data": {"conversation_id": conversation_id}
-#                 })
-#                 response = await client.receive_json()
-#                 assert response["type"] == "conversation.questions.generate.completed"
-#         finally:
-#             await client.close()
+                # Generate questions
+                await client.send_json({
+                    "type": "conversation.questions.generate",
+                    "data": {"conversation_id": conversation_id}
+                })
+                response = await client.receive_json()
+                assert response["type"] == "conversation.questions.generate.completed"
+        finally:
+            await client.close()
 
 @pytest.mark.asyncio
 async def test_merge_conversation():

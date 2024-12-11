@@ -439,16 +439,15 @@ class ConversationService:
             conversations = result.scalars().all()
             
             # Convert conversations to dict format
-            conversations_data = [
-                {
-                    "conversation_id": str(conv.id),
+            conversations_data = {
+                str(conv.id): {
                     "document_id": str(conv.document_id),
                     "chunk_id": conv.chunk_id,
                     "created_at": conv.created_at.isoformat(),
                     "highlight_text": conv.meta_data.get("highlight_text") if conv.meta_data else ""
                 }
                 for conv in conversations
-            ]
+            }
             
             # Emit success event
             await event_bus.emit(Event(

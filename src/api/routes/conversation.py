@@ -145,9 +145,14 @@ class WebSocketHandler:
         content = data.get("content")
         role = data.get("role", "user")
         chunk_id = data.get("chunk_id")
+        conversation_type = data.get("conversation_type")
 
-        if not all([conversation_id, content]):
-            await self.websocket.send_json({"error": "Missing conversation_id or content"})
+        if not all([conversation_id, content, conversation_type]):
+            await self.websocket.send_json({"error": "Missing conversation_id or content or conversation_type (main or highlight)"})
+            return
+        if conversation_type == "main" and chunk_id is None:
+            logger.info("Missing chunk_id: {chunk_id}, must be included for main conversation")
+            await self.websocket.send_json({"error": "Missing chunk_id, must be included for main conversation"})
             return
         await event_bus.emit(Event(
             type="conversation.message.send.requested",
@@ -157,7 +162,8 @@ class WebSocketHandler:
                 "conversation_id": conversation_id,
                 "content": content,
                 "role": role,
-                "chunk_id": chunk_id
+                "chunk_id": chunk_id,
+                "conversation_type": conversation_type
             }
         ))
 
@@ -288,6 +294,8 @@ class WebSocketHandler:
             await self.handle_list_chunks(data)
         elif msg_type == "conversation.get.by.sequence":
             await self.handle_get_conversations_by_sequence(data)
+        elif msg_type == "conversation.messages.list":
+            await self.handle_list_messages(data)
         else:
             await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
                 

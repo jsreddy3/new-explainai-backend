@@ -31,10 +31,11 @@ class AIService:
         """
         try:
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
-            for i, msg in enumerate(messages):
-                logger.info(f"Message {i} ({msg['role']}): {msg['content'][:500]}...")
+            # for i, msg in enumerate(messages):
+                # logger.info(f"Message {i} ({msg['role']}): {msg['content'][:500]}...")
             
             # Call AI model
+            logger.info("Calling AI model...")
             response = ""
             completion = await acompletion(
                 model=self.MODEL,
@@ -58,7 +59,7 @@ class AIService:
                 response += content
                 
             # Log final response
-            logger.info(f"AI Service Chat Response: {response}")
+            # logger.info(f"AI Service Chat Response: {response}")
             
             # Emit completion event
             await event_bus.emit(Event(

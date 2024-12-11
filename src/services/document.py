@@ -101,6 +101,7 @@ class DocumentService:
         logger.info("Handling request for metadata")
         try:
             document = await self.get_document(event.document_id, db)
+            logger.info("Returning get metadata")
             await event_bus.emit(Event(
                 type="document.metadata.completed",
                 document_id=event.document_id,
@@ -161,6 +162,7 @@ class DocumentService:
 
     async def get_document(self, document_id: str, db: AsyncSession) -> Optional[Dict]:
         try:
+            logger.info("Getting document: " + document_id)
             result = await db.execute(
                 select(Document).where(Document.id == document_id)
             )
@@ -176,6 +178,7 @@ class DocumentService:
                 .order_by(DocumentChunk.sequence)
             )
             chunks = result.scalars().all()
+            logger.info("Successfully got document: " + document_id)
 
             return {
                 "id": str(document.id),

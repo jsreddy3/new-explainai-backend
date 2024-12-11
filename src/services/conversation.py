@@ -52,6 +52,7 @@ class ConversationService:
             event_bus.on("conversation.questions.list.requested", self._queue_task(self.handle_list_questions))
             event_bus.on("conversation.merge.requested", self._queue_task(self.handle_merge_conversations))
             event_bus.on("conversation.chunk.get.requested", self._queue_task(self.handle_get_conversations_by_sequence))
+            event_bus.on("conversation.messages.requested", self._queue_task(self.handle_list_messages))
                 
             self.__class__._initialized = True
 
@@ -440,7 +441,7 @@ class ConversationService:
             # Convert conversations to dict format
             conversations_data = [
                 {
-                    "id": str(conv.id),
+                    "conversation_id": str(conv.id),
                     "document_id": str(conv.document_id),
                     "chunk_id": conv.chunk_id,
                     "created_at": conv.created_at.isoformat(),
@@ -464,6 +465,59 @@ class ConversationService:
                 document_id=event.document_id,
                 connection_id=event.connection_id,
                 data={"error": str(e)}
+            ))
+
+    async def handle_list_messages(self, event: Event, db: AsyncSession):
+        """Handle request to list messages for a conversation
+        
+        Args:
+            event: Event containing conversation_id
+            db: Database session
+        """
+        try:
+            conversation_id = event.data.get("conversation_id")
+            if not conversation_id:
+                raise ValueError("Missing conversation_id")
+
+            # Query messages for the conversation, ordered by timestamp
+            stmt = select(Message).where(
+                Message.conversation_id == conversation_id
+            ).order_by(Message.created_at)
+            
+            result = await db.execute(stmt)
+            messages = result.scalars().all()
+            
+            # Convert messages to dict format
+            message_list = [{
+                "id": str(msg.id),
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat(),
+                "conversation_id": str(msg.conversation_id)
+            } for msg in messages]
+            
+            # Emit completion event with messages
+            await event_bus.emit(Event(
+                type="conversation.messages.completed",
+                document_id=event.document_id,
+                connection_id=event.connection_id,
+                data={
+                    "conversation_id": conversation_id,
+                    "messages": message_list
+                }
+            ))
+            
+        except Exception as e:
+            logger.error(f"Error listing messages: {e}")
+            # Emit error event
+            await event_bus.emit(Event(
+                type="conversation.messages.error",
+                document_id=event.document_id,
+                connection_id=event.connection_id,
+                data={
+                    "conversation_id": conversation_id,
+                    "error": str(e)
+                }
             ))
 
     async def _get_messages_with_chunk_switches(self, conversation: Dict, db: AsyncSession) -> List[Dict]:
@@ -498,7 +552,7 @@ class ConversationService:
                 last_chunk_id = current_chunk_id
             processed_messages.insert(0, msg)
 
-        logger.info("Processed messages with chunk switches: ", processed_messages)
+        # logger.info(f"Processed messages with chunk switches: {processed_messages}")
             
         return processed_messages
 

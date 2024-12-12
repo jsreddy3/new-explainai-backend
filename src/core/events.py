@@ -50,40 +50,40 @@ class EventBus:
         while True:
             try:
                 event = await self._event_queue.get()
-                self.logger.debug(f"EVENT BUS: Processing event - Type: {event.type}, Data: {event.data}")
+                logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
+                logger.debug(f"[EVENT BUS] Event data: {event.data}")
                 
                 # Process exact matches
                 if event.type in self.listeners:
                     for listener in self.listeners[event.type]:
                         try:
-                            self.logger.debug(f"EVENT BUS: Calling listener {listener.__name__} for event {event.type}")
+                            # logger.info(f"[EVENT BUS] Registering handler for event type: {event.type}")
+                            logger.debug(f"EVENT BUS: Calling listener {listener.__name__} for event {event.type}")
                             await listener(event)
                         except Exception as e:
-                            self.logger.error(f"EVENT BUS: Error in listener {listener.__name__}: {str(e)}", exc_info=True)
+                            logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
                 
                 # Process wildcard listeners
                 if "*" in self.listeners:
                     for listener in self.listeners["*"]:
                         try:
-                            self.logger.debug(f"EVENT BUS: Calling wildcard listener {listener.__name__} for event {event.type}")
+                            # logger.info(f"[EVENT BUS] Registering handler for event type: *")
+                            logger.debug(f"EVENT BUS: Calling wildcard listener {listener.__name__} for event {event.type}")
                             await listener(event)
                         except Exception as e:
-                            self.logger.error(f"EVENT BUS: Error in wildcard listener {listener.__name__}: {str(e)}", exc_info=True)
+                            logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
                 
                 self._event_queue.task_done()
             except Exception as e:
-                self.logger.error(f"EVENT BUS: Error processing event: {str(e)}")
+                logger.error(f"EVENT BUS: Error processing event: {str(e)}")
     
     def on(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
         """Register a listener for an event type"""
-        # self.logger.debug(f"EVENT BUS: Registering listener {callback.__name__} for event type {event_type}")
+        logger.info(f"[EVENT BUS] Registering handler for event type: {event_type}")
         self.listeners[event_type].append(callback)
     
     async def emit(self, event: Event):
         """Emit an event to all registered listeners"""
-        self.logger.debug(f"EVENT BUS: Emitting event - Type: {event.type}, Data: {event.data}")
-        if (event.type != "chat.token"):
-          print(f"EVENT BUS: Event successfully emitted {event.type}")
         if not self._initialized:
             self.initialize()
         await self._event_queue.put(event)

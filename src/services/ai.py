@@ -19,6 +19,7 @@ class AIService:
         document_id: str,
         conversation_id: str,
         messages: List[Dict[str, str]],
+        connection_id: str,
         stream: bool = True
     ) -> str:
         """Chat with the AI model with streaming support
@@ -51,10 +52,8 @@ class AIService:
                 await event_bus.emit(Event(
                     type="chat.token",
                     document_id=document_id,
-                    data={
-                        "conversation_id": conversation_id,
-                        "token": content
-                    }
+                    connection_id=connection_id,
+                    data={"token": content}
                 ))
                 response += content
                 
@@ -65,10 +64,8 @@ class AIService:
             await event_bus.emit(Event(
                 type="chat.completed",
                 document_id=document_id,
-                data={
-                    "conversation_id": conversation_id,
-                    "response": response
-                }
+                connection_id=connection_id,
+                data={"response": response}
             ))
             
             return response

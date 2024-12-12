@@ -27,6 +27,9 @@ class WebSocketHandler:
         self.connection_id = None
         self.task = None
         self.event_types = [
+            # Chat events
+            "chat.token", "chat.completed",
+
             # Creation events
             "conversation.main.create.completed", "conversation.main.create.error",
             "conversation.chunk.create.completed", "conversation.chunk.create.error",
@@ -312,6 +315,7 @@ class WebSocketHandler:
                 "highlight_conversation_id": data.get("highlight_conversation_id")
             })
         elif msg_type == "conversation.message.send":
+            print("Routes handling send message")
             await self.handle_send_message(data)
         elif msg_type == "conversation.list":
             await self.handle_list_conversations(data)

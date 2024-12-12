@@ -162,7 +162,7 @@ class DocumentService:
 
     async def get_document(self, document_id: str, db: AsyncSession) -> Optional[Dict]:
         try:
-            logger.info("Getting document: " + document_id)
+            logger.info(f"Getting document: {document_id}")
             result = await db.execute(
                 select(Document).where(Document.id == document_id)
             )
@@ -178,9 +178,8 @@ class DocumentService:
                 .order_by(DocumentChunk.sequence)
             )
             chunks = result.scalars().all()
-            logger.info("Successfully got document: " + document_id)
-
-            return {
+            
+            response = {
                 "id": str(document.id),
                 "title": document.title,
                 "content": document.content,
@@ -196,6 +195,8 @@ class DocumentService:
                     } for chunk in chunks
                 ]
             }
+            logger.info(f"Successfully got document: {document_id} with response: {response}")
+            return response
         except Exception as e:
             logger.error(f"Error getting document: {str(e)}")
             return None

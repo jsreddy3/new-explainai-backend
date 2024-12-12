@@ -181,6 +181,7 @@ class ConversationService:
             ))
 
     async def handle_send_message(self, event: Event, db: AsyncSession):
+        logger.info("Handle send message")
         document_id = event.document_id
         try:
             conversation_id = event.data["conversation_id"]
@@ -218,12 +219,13 @@ class ConversationService:
 
             if messages:
                 messages[-1]["content"] = processed_content
-                        
+            logger.info("Messages: {messages}")
             # 5. Send entire messages array to AI service
             response = await self.ai_service.chat(
                 document_id,
                 conversation_id,
-                messages=messages
+                messages=messages,
+                connection_id=event.connection_id  # Pass the WebSocket connection_id
             )
                         
             # Add AI response in a new transaction

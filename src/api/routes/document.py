@@ -82,13 +82,16 @@ class WebSocketHandler:
     async def handle_event(self, event: Event):
         """Handle different types of events"""
         try:
+            logger.info(f"[WS] Sending event to client: type={event.type}")
+            logger.debug(f"[WS] Event data: {event.data}")
+            
             # Send the event data to the WebSocket client
             await self.websocket.send_json({
                 "type": event.type,
                 "data": event.data
             })
         except Exception as e:
-            logger.error(f"Failed to send event to WebSocket: {e}")
+            logger.error(f"[WS] Failed to send event to WebSocket: {e}")
 
     async def handle_list_chunks(self, data: Dict):
         """Handle request to list document chunks"""
@@ -140,16 +143,21 @@ class WebSocketHandler:
         """Process incoming WebSocket message"""
         msg_type = message.get("type")
         data = message.get("data", {})
+        
+        logger.info(f"[WS] Received message from client: type={msg_type}")
+        logger.debug(f"[WS] Message data: {data}")
 
         if msg_type == "document.chunk.list":
             await self.handle_list_chunks(data)
         elif msg_type == "document.metadata":
+            logger.info("Handling document metadata request")
             await self.handle_get_metadata(data)
         elif msg_type == "document.navigate":
             await self.handle_navigate_chunks(data)
         elif msg_type == "document.process":
             await self.handle_process_document(data)
         else:
+            logger.warning(f"[WS] Unknown message type: {msg_type}")
             await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
 
     async def cleanup(self):

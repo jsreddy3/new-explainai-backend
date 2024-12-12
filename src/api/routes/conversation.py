@@ -321,7 +321,7 @@ class WebSocketHandler:
             await self.handle_list_chunks(data)
         elif msg_type == "conversation.get.by.sequence":
             await self.handle_get_conversations_by_sequence(data)
-        elif msg_type == "conversation.messages.list":
+        elif msg_type == "conversation.messages.get":
             await self.handle_list_messages(data)
         else:
             await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})

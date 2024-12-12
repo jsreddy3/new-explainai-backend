@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
@@ -13,15 +13,19 @@ from src.core.events import event_bus, Event
 from src.core.logging import setup_logger
 from src.core.websocket_manager import manager
 from src.models.database import Document, DocumentChunk
+from ..routes.auth import get_current_user, User
+from ...services.auth import AuthService
+from ...core.config import settings
 
 logger = setup_logger(__name__)
 pdf_service = PDFService()
 router = APIRouter()
 
 class WebSocketHandler:
-    def __init__(self, websocket: WebSocket, document_id: str, db: AsyncSession):
+    def __init__(self, websocket: WebSocket, document_id: str, user: User, db: AsyncSession):
         self.websocket = websocket
         self.document_id = document_id
+        self.user = user
         self.db = db
         self.document_service = DocumentService(db)
         self.queue = asyncio.Queue()
@@ -47,6 +51,12 @@ class WebSocketHandler:
 
     async def connect(self):
         """Establish WebSocket connection and set up event listeners"""
+        # Verify document access
+        document = await self.document_service.get_document(self.document_id, self.db)
+        if not document or document.owner_id != str(self.user.id):
+            await self.websocket.close(code=4003)
+            return None
+            
         # Generate a unique connection ID
         self.connection_id = str(uuid.uuid4())
         
@@ -176,44 +186,41 @@ class WebSocketHandler:
 async def document_stream(
     websocket: WebSocket,
     document_id: str,
+    token: str = Query(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """Stream document events via WebSocket
-    
-    Handles document-related events including:
-    - Document creation events
-    - Chunk events
-    - Metadata events
-    - Processing events
-    - Navigation events
-    
-    Args:
-        websocket (WebSocket): The WebSocket connection
-        document_id (str): The ID of the document to stream events for
-        db (AsyncSession): Database session
-    """
-    handler = WebSocketHandler(websocket, document_id, db)
-    connection_id = None
-    
+    """Stream document events via WebSocket"""
     try:
+        # Verify JWT token
+        auth_service = AuthService(db)
+        user = await auth_service.get_current_user(token)
+        if not user:
+            await websocket.close(code=4003)
+            return
+
+        handler = WebSocketHandler(websocket, document_id, user, db)
         connection_id = await handler.connect()
-        while True:
-            message = await websocket.receive_json()
-            await handler.process_message(message)
+        
+        if connection_id:
+            while True:
+                message = await websocket.receive_json()
+                await handler.process_message(message)
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
         await handler.cleanup()
 
-@router.post("/upload")
+@router.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """Upload and process a document
     
     Args:
         file (UploadFile): The PDF file to upload
+        current_user (User): The authenticated user
         db (AsyncSession): Database session
     
     Returns:
@@ -240,10 +247,11 @@ async def upload_document(
             logger.error(f"PDF processing failed: {result.text}")
             raise HTTPException(status_code=400, detail=result.text)
 
-        # Create document record
+        # Create document record with owner
         document = Document(
             title=result.display,
             content=result.text,
+            owner_id=str(current_user.id),  # Associate with user
             status="ready",  # Document is ready immediately since we process synchronously
             meta_data={
                 "topic_key": result.topicKey,
@@ -278,7 +286,8 @@ async def upload_document(
             document_id=str(document.id),
             data={
                 "filename": file.filename,
-                "document_id": str(document.id)
+                "document_id": str(document.id),
+                "owner_id": str(current_user.id)
             }
         ))
 

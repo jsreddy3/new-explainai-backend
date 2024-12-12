@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     CARTESIA_API_KEY: str
     DEEPINFRA_TOKEN: str
     
+    # Authentication
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    JWT_SECRET: str = "your-secret-key-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_HOURS: int = 24
+    
     # New Supabase settings
     SUPABASE_URL: Optional[str] = None
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None

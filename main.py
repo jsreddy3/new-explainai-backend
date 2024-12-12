@@ -14,7 +14,7 @@ from src.services.document import DocumentService
 from src.core.events import event_bus
 
 # Import routes
-from src.api.routes import document, conversation, signup
+from src.api.routes import document, conversation, auth, signup
 
 # Setup logging
 logger = setup_logger(__name__)
@@ -40,7 +40,10 @@ async def lifespan(app: FastAPI):
         required_settings = [
             'OPENAI_API_KEY',
             'LLAMA_CLOUD_API_KEY',
-            'DATABASE_URL'
+            'DATABASE_URL',
+            'GOOGLE_CLIENT_ID',
+            'GOOGLE_CLIENT_SECRET',
+            'JWT_SECRET'
         ]
         
         missing_settings = [
@@ -92,9 +95,10 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(document.router, prefix="/api", tags=["Documents"])
-app.include_router(conversation.router, prefix="/api", tags=["Conversations"])
+app.include_router(document.router, prefix="/api", tags=["documents"])
+app.include_router(conversation.router, prefix="/api", tags=["conversations"])
 app.include_router(signup.router, prefix="/api", tags=["Authentication"])
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 
 class CreateConversationRequest(BaseModel):
     type: str  # 'main' | 'highlight'

@@ -53,6 +53,7 @@ class ConversationService:
             event_bus.on("conversation.merge.requested", self._queue_task(self.handle_merge_conversations))
             event_bus.on("conversation.chunk.get.requested", self._queue_task(self.handle_get_conversations_by_sequence))
             event_bus.on("conversation.messages.requested", self._queue_task(self.handle_list_messages))
+            event_bus.on("conversation.list.requested", self._queue_task(self.handle_list_conversations))
                 
             self.__class__._initialized = True
 
@@ -463,6 +464,45 @@ class ConversationService:
             logger.error(f"Error getting conversations by sequence: {str(e)}")
             await event_bus.emit(Event(
                 type="conversation.chunk.get.error",
+                document_id=event.document_id,
+                connection_id=event.connection_id,
+                data={"error": str(e)}
+            ))
+
+    async def handle_list_conversations(self, event: Event, db: AsyncSession):
+        """List all conversations for a document"""
+        try:
+            document_id = event.document_id
+            
+            # Query conversations with the given document_id
+            stmt = select(Conversation).where(Conversation.document_id == document_id)
+            
+            result = await db.execute(stmt)
+            conversations = result.scalars().all()
+            
+            # Convert conversations to dict format
+            conversations_data = {
+                str(conv.id): {
+                    "document_id": str(conv.document_id),
+                    "chunk_id": conv.chunk_id,
+                    "created_at": conv.created_at.isoformat(),
+                    "highlight_text": conv.meta_data.get("highlight_text") if conv.meta_data else ""
+                }
+                for conv in conversations
+            }
+
+            # Emit success event
+            await event_bus.emit(Event(
+                type="conversation.list.completed",
+                document_id=document_id,
+                connection_id=event.connection_id,
+                data={"conversations": conversations_data}
+            ))
+            
+        except Exception as e:
+            logger.error(f"Error listing conversations: {str(e)}")
+            await event_bus.emit(Event(
+                type="conversation.list.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
                 data={"error": str(e)}

@@ -185,6 +185,7 @@ class DocumentService:
                 "content": document.content,
                 "created_at": str(document.created_at),
                 "status": document.status,
+                "owner_id": str(document.owner_id),
                 "meta_data": document.meta_data,
                 "chunks": [
                     {

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import Dict, Optional, Callable, Awaitable, Any
@@ -8,21 +8,26 @@ import uuid
 
 from src.db.session import get_db
 from src.services.conversation import ConversationService
+from src.services.document import DocumentService
 from src.services.ai import AIService
 from src.core.events import event_bus, Event
 from src.core.websocket_manager import manager
 from src.core.logging import setup_logger
-from src.models.database import Conversation
+from src.models.database import Conversation, Document
+from ..routes.auth import get_current_user, User
+from ...services.auth import AuthService
 
 logger = setup_logger(__name__)
 router = APIRouter()
 
 class WebSocketHandler:
-    def __init__(self, websocket: WebSocket, document_id: str, db: AsyncSession):
+    def __init__(self, websocket: WebSocket, document_id: str, user: User, db: AsyncSession):
         self.websocket = websocket
         self.document_id = document_id
+        self.user = user
         self.db = db
         self.conversation_service = ConversationService(db)
+        self.document_service = DocumentService(db)
         self.queue = asyncio.Queue()
         self.connection_id = None
         self.task = None
@@ -57,6 +62,12 @@ class WebSocketHandler:
 
     async def connect(self):
         """Establish WebSocket connection and set up event listeners"""
+        # Verify document access
+        document = await self.document_service.get_document(self.document_id, self.db)
+        if not document or document["owner_id"] != str(self.user.id):
+            await self.websocket.close(code=4003)
+            return None
+            
         # Generate a unique connection ID
         self.connection_id = str(uuid.uuid4())
         
@@ -334,6 +345,7 @@ class WebSocketHandler:
 async def conversation_stream(
     websocket: WebSocket,
     document_id: str,
+    token: str = Query(...),
     db: AsyncSession = Depends(get_db)
 ):
     """Stream conversation events via WebSocket
@@ -348,18 +360,25 @@ async def conversation_stream(
     Args:
         websocket (WebSocket): The WebSocket connection
         document_id (str): The ID of the document to stream events for
+        token (str): JWT token for authentication
         db (AsyncSession): Database session
     """
-    handler = WebSocketHandler(websocket, document_id, db)
-    
     try:
+        # Verify JWT token
+        auth_service = AuthService(db)
+        user = await auth_service.get_current_user(token)
+        if not user:
+            await websocket.close(code=4003)
+            return
+
+        handler = WebSocketHandler(websocket, document_id, user, db)
         connection_id = await handler.connect()
-        print("Connected with connection ID: ", connection_id)
-        while True:
-            message = await websocket.receive_json()
-            await handler.process_message(message)
+        
+        if connection_id:
+            while True:
+                message = await websocket.receive_json()
+                await handler.process_message(message)
     except WebSocketDisconnect:
-        print("WebSocket disconnected")
         logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
         await handler.cleanup()

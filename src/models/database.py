@@ -14,20 +14,26 @@ class ConversationType(str, Enum):
 class User(Base):
     __tablename__ = 'users'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    google_id = Column(String, unique=True)
     name = Column(String)
     email = Column(String, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     meta_data = Column(JSON, nullable=True)
+
+    # Add relationship to documents
+    documents = relationship("Document", back_populates="owner")
 
 class Document(Base):
     __tablename__ = 'documents'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id = Column(String, ForeignKey('users.id'))
     title = Column(String)
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     status = Column(String)
-    meta_data = Column(JSON)  # Changed from metadata to meta_data
+    meta_data = Column(JSON)
     
     # Relationships
     chunks = relationship("DocumentChunk", back_populates="document")
@@ -35,6 +41,7 @@ class Document(Base):
                                    primaryjoin="and_(Document.id==Conversation.document_id, "
                                              "Conversation.chunk_id==None)", 
                                    uselist=False)
+    owner = relationship("User", back_populates="documents")
 
 class DocumentChunk(Base):
     __tablename__ = 'document_chunks'
@@ -42,7 +49,7 @@ class DocumentChunk(Base):
     document_id = Column(String, ForeignKey('documents.id'))
     content = Column(Text)
     sequence = Column(Integer)
-    meta_data = Column(JSON)  # Changed from metadata to meta_data
+    meta_data = Column(JSON)
     
     # Relationships
     document = relationship("Document", back_populates="chunks")

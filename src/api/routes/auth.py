@@ -1,110 +1,100 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
-import bcrypt
-import jwt
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict
 
-from ...models.database import User
+from ...models.database import User, Document
 from ...db.session import get_db
+from ...services.auth import AuthService
+from ...core.config import settings
 
 router = APIRouter()
 
-# Configuration
-SECRET_KEY = "your-secret-key"  # In production, use a secure secret key from environment variables
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# OAuth2 scheme for JWT
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+# Initialize auth service
+def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
+    return AuthService(db)
 
-@router.post("/signup")
-async def signup(email: str, password: str, db: AsyncSession = Depends(get_db)):
-    """Create a new user account"""
-    # Check if user already exists
-    result = await db.execute(select(User).where(User.email == email))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    # Hash password
-    salt = bcrypt.gensalt()
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
-    
-    # Create new user
-    new_user = User(
-        email=email,
-        password_hash=hashed_password.decode('utf-8')
-    )
-    db.add(new_user)
-    await db.commit()
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": new_user.id},
-        expires_delta=access_token_expires
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": new_user.to_dict()
-    }
-
-@router.post("/login")
-async def login(email: str, password: str, db: AsyncSession = Depends(get_db)):
-    """Authenticate a user and return a token"""
-    # Find user
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-    
-    # Verify password
-    if not bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.id},
-        expires_delta=access_token_expires
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": user.to_dict()
-    }
-
-@router.get("/documents")
-async def get_user_documents(user_id: str, db: AsyncSession = Depends(get_db)):
-    """Get all documents for a user"""
-    result = await db.execute(
-        select(User)
-        .where(User.id == user_id)
-        .options(selectinload(User.documents))
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    return {
-        "documents": [
-            {
-                "id": doc.id,
-                "title": doc.title,
-                "created_at": doc.created_at.isoformat()
+@router.post("/auth/google/login")
+async def google_login(
+    token: str,
+    auth_service: AuthService = Depends(get_auth_service),
+    db: AsyncSession = Depends(get_db)
+):
+    """Handle Google OAuth login"""
+    try:
+        # Verify Google token
+        user_info = await auth_service.verify_google_token(token)
+        
+        # Create or update user
+        user = await auth_service.create_or_update_user(user_info)
+        
+        # Generate JWT token
+        token_data = auth_service.create_jwt_token(str(user.id))
+        
+        return {
+            **token_data,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name
             }
-            for doc in user.documents
-        ]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    auth_service: AuthService = Depends(get_auth_service)
+) -> User:
+    """Get current user from JWT token"""
+    try:
+        user = await auth_service.get_current_user(token)
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=401,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+@router.get("/auth/me")
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current user information"""
+    return {
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "name": current_user.name
     }
+
+@router.get("/auth/me/documents")
+async def get_user_documents(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all documents for the current user"""
+    result = await db.execute(
+        select(Document).where(Document.owner_id == current_user.id)
+    )
+    documents = result.scalars().all()
+    return [
+        {
+            "id": str(doc.id),
+            "title": doc.title,
+            "created_at": doc.created_at.isoformat()
+        }
+        for doc in documents
+    ]

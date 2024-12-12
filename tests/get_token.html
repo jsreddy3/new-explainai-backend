@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ExplainAI Test Frontend</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; padding: 0 20px; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; border-radius: 4px; }
+        .hidden { display: none; }
+        button { margin: 5px; padding: 8px 16px; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+        .document-item { padding: 10px; margin: 5px 0; border: 1px solid #eee; cursor: pointer; }
+        .document-item:hover { background: #f5f5f5; }
+        .conversation-item { padding: 8px; margin: 4px 0; background: #f9f9f9; }
+        #errorDisplay { color: red; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <!-- Error Display -->
+    <div id="errorDisplay"></div>
+
+    <!-- Auth Section -->
+    <div class="section" id="authSection">
+        <h2>Authentication</h2>
+        <div id="g_id_onload"
+             data-client_id="395094655648-tpf5gvtmk7h3c086gp6ubf2qgupf8uib.apps.googleusercontent.com"
+             data-callback="handleCredentialResponse">
+        </div>
+        <div class="g_id_signin"
+             data-type="standard"
+             data-size="large"
+             data-theme="outline"
+             data-text="sign_in_with"
+             data-shape="rectangular"
+             data-logo_alignment="left">
+        </div>
+        <div id="userInfo" class="hidden">
+            <h3>User Info</h3>
+            <pre id="userInfoDisplay"></pre>
+            <button onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <!-- Document Upload Section -->
+    <div class="section hidden" id="uploadSection">
+        <h2>Upload Document</h2>
+        <input type="file" id="fileInput" accept=".pdf">
+        <button onclick="uploadDocument()">Upload</button>
+        <pre id="uploadResult"></pre>
+    </div>
+
+    <!-- Documents List Section -->
+    <div class="section hidden" id="documentsSection">
+        <h2>My Documents</h2>
+        <button onclick="listDocuments()">Refresh Documents</button>
+        <div id="documentsList"></div>
+    </div>
+
+    <!-- Conversations Section -->
+    <div class="section hidden" id="conversationsSection">
+        <h2>Document Conversations</h2>
+        <h3 id="currentDocumentTitle"></h3>
+        <button onclick="createConversation()">New Conversation</button>
+        <button onclick="listConversations()">Refresh Conversations</button>
+        <div id="conversationsList"></div>
+    </div>
+
+    <script>
+        let currentToken = null;
+        let currentDocumentId = null;
+
+        function showError(message) {
+            const errorDisplay = document.getElementById('errorDisplay');
+            errorDisplay.textContent = message;
+            console.error(message);
+        }
+
+        // Auth handlers
+        function handleCredentialResponse(response) {
+            currentToken = response.credential;
+            loginWithGoogle(currentToken);
+        }
+
+        async function loginWithGoogle(token) {
+            try {
+                const response = await fetch(`http://localhost:8000/api/auth/google/login?token=${encodeURIComponent(token)}`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Login failed: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                currentToken = data.access_token; // Use the JWT token from the backend
+                document.getElementById('userInfoDisplay').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('userInfo').classList.remove('hidden');
+                document.getElementById('uploadSection').classList.remove('hidden');
+                document.getElementById('documentsSection').classList.remove('hidden');
+                listDocuments();
+            } catch (error) {
+                showError(`Login error: ${error.message}`);
+            }
+        }
+
+        function logout() {
+            currentToken = null;
+            document.getElementById('userInfo').classList.add('hidden');
+            document.getElementById('uploadSection').classList.add('hidden');
+            document.getElementById('documentsSection').classList.add('hidden');
+            document.getElementById('conversationsSection').classList.add('hidden');
+            document.getElementById('errorDisplay').textContent = '';
+            google.accounts.id.disableAutoSelect();
+        }
+
+        // Document handlers
+        async function uploadDocument() {
+          const fileInput = document.getElementById('fileInput');
+          const file = fileInput.files[0];
+          if (!file) {
+              showError('Please select a file first');
+              return;
+          }
+
+          const formData = new FormData();
+          formData.append('file', file);
+
+          try {
+              const response = await fetch('http://localhost:8000/api/documents/upload', {
+                  method: 'POST',
+                  headers: {
+                      'Authorization': `Bearer ${currentToken}`
+                  },
+                  body: formData
+              });
+
+              if (!response.ok) {
+                  throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+              }
+
+              const data = await response.json();
+              document.getElementById('uploadResult').textContent = JSON.stringify(data, null, 2);
+              listDocuments();
+          } catch (error) {
+              showError(`Upload error: ${error.message}`);
+          }
+      }
+
+        async function listDocuments() {
+            try {
+                const response = await fetch('http://localhost:8000/api/auth/me/documents', {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to list documents: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const documentsList = document.getElementById('documentsList');
+                documentsList.innerHTML = data.map(doc => `
+                    <div class="document-item" onclick="selectDocument('${doc.id}', '${doc.title}')">
+                        <strong>${doc.title}</strong><br>
+                        <small>ID: ${doc.id}</small><br>
+                        <small>Created: ${new Date(doc.created_at).toLocaleString()}</small>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showError(`List documents error: ${error.message}`);
+            }
+        }
+
+        // Conversation handlers
+        function selectDocument(docId, title) {
+            currentDocumentId = docId;
+            document.getElementById('conversationsSection').classList.remove('hidden');
+            document.getElementById('currentDocumentTitle').textContent = title;
+            listConversations();
+        }
+
+        async function createConversation() {
+            if (!currentDocumentId) return;
+
+            try {
+                const ws = new WebSocket(`ws://localhost:8000/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
+                
+                ws.onopen = () => {
+                    ws.send(JSON.stringify({
+                        type: "conversation.main.create",
+                        data: {
+                            document_id: currentDocumentId,
+                            content: "Test conversation",
+                            conversation_type: "main",
+                            chunk_id: 0
+                        }
+                    }));
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "conversation.main.create.completed") {
+                        ws.close();
+                        listConversations();
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    showError(`WebSocket error: ${error}`);
+                };
+            } catch (error) {
+                showError(`Create conversation error: ${error.message}`);
+            }
+        }
+
+        async function listConversations() {
+            if (!currentDocumentId) return;
+
+            try {
+                const ws = new WebSocket(`ws://localhost:8000/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
+                
+                ws.onopen = () => {
+                    ws.send(JSON.stringify({
+                        type: "conversation.list",
+                        data: { document_id: currentDocumentId }
+                    }));
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "conversation.list.completed") {
+                        const conversationsList = document.getElementById('conversationsList');
+                        const conversations = data.data.conversations;
+                        conversationsList.innerHTML = Object.entries(conversations).map(([id, conv]) => `
+                            <div class="conversation-item">
+                                <strong>ID: ${id}</strong><br>
+                                <small>Created: ${new Date(conv.created_at).toLocaleString()}</small>
+                            </div>
+                        `).join('');
+                        ws.close();
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    showError(`WebSocket error: ${error}`);
+                };
+            } catch (error) {
+                showError(`List conversations error: ${error.message}`);
+            }
+        }
+    </script>
+</body>
+</html>

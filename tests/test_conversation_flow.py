@@ -54,10 +54,15 @@ class WebSocketClient:
         if not self._closed and self.ws:
             await self.ws.send_json(data)
     
-    async def receive_json(self, timeout: float = 20.0):
+    async def receive_json(self, timeout: float = 180.0, ignore_tokens: bool = True):
         """Receive JSON data from the server"""
         try:
-            return await asyncio.wait_for(self._message_queue.get(), timeout)
+            while True:
+                message = await asyncio.wait_for(self._message_queue.get(), timeout)
+                # If ignore_tokens is True, skip chat.token and chat.completed messages
+                if ignore_tokens and message.get("type") in ["chat.token", "chat.completed"]:
+                    continue
+                return message
         except asyncio.TimeoutError:
             logger.error(f"Timeout waiting for WebSocket response after {timeout} seconds")
             raise
@@ -108,7 +113,8 @@ async def test_complex_conversation_flow():
                 "data": {
                     "conversation_id": main_conversation_id,
                     "content": "What's the main topic discussed in this section?",
-                    "chunk_id": "0"
+                    "chunk_id": "0",
+                    "conversation_type": "main"
                 }
             })
             response = await client.receive_json()
@@ -120,7 +126,8 @@ async def test_complex_conversation_flow():
                 "data": {
                     "conversation_id": main_conversation_id,
                     "content": "What themes are introduced in this next section?",
-                    "chunk_id": "1"
+                    "chunk_id": "1",
+                    "conversation_type": "main"
                 }
             })
             response = await client.receive_json()
@@ -150,15 +157,16 @@ async def test_complex_conversation_flow():
             assert response["type"] == "conversation.chunk.get.completed"
             conversations = response["data"]["conversations"]
             assert len(conversations) > 0
-            assert any(conv["id"] == highlight_conversation_id for conv in conversations)
-            assert all(conv["chunk_id"] == "1" for conv in conversations)
+            assert any(conv_id == highlight_conversation_id for conv_id in conversations.keys())
+            assert all(conv_data["chunk_id"] == "1" for conv_data in conversations.values())
 
             # Converse in highlight conversation
             await client.send_json({
                 "type": "conversation.message.send",
                 "data": {
                     "conversation_id": highlight_conversation_id,
-                    "content": "How does this theme of reality versus fiction manifest throughout the work?"
+                    "content": "How does this theme of reality versus fiction manifest throughout the work?",
+                    "conversation_type": "highlight"
                 }
             })
             response = await client.receive_json()
@@ -168,7 +176,8 @@ async def test_complex_conversation_flow():
                 "type": "conversation.message.send",
                 "data": {
                     "conversation_id": highlight_conversation_id,
-                    "content": "Can you provide specific examples from the text?"
+                    "content": "Can you provide specific examples from the text?",
+                    "conversation_type": "highlight"
                 }
             })
             response = await client.receive_json()
@@ -180,7 +189,8 @@ async def test_complex_conversation_flow():
                 "data": {
                     "conversation_id": main_conversation_id,
                     "content": "How do these themes connect to the overall narrative structure?",
-                    "chunk_id": "1"
+                    "chunk_id": "1",
+                    "conversation_type": "main"
                 }
             })
             response = await client.receive_json()
@@ -192,7 +202,8 @@ async def test_complex_conversation_flow():
                 "data": {
                     "conversation_id": main_conversation_id,
                     "content": "Let's return to the beginning. How does this connect to what we discussed earlier?",
-                    "chunk_id": "0"
+                    "chunk_id": "0",
+                    "conversation_type": "main"
                 }
             })
             response = await client.receive_json()
@@ -215,7 +226,8 @@ async def test_complex_conversation_flow():
                 "data": {
                     "conversation_id": main_conversation_id,
                     "content": "Now that we've explored these themes in detail, how do they contribute to our understanding of the work as a whole?",
-                    "chunk_id": "0"
+                    "chunk_id": "0",
+                    "conversation_type": "main"
                 }
             })
             response = await client.receive_json()

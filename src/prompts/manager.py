@@ -24,7 +24,7 @@ class PromptManager:
         
     def create_main_system_prompt(self, chunk_text: str) -> str:
         """Create system prompt for main conversation"""
-        return MAIN_SYSTEM_PROMPT.format(chunk_text=chunk_text)
+        return MAIN_SYSTEM_PROMPT
         
     def create_highlight_system_prompt(self, chunk_text: str, highlight_text: str) -> str:
         """Create system prompt for highlight conversation"""

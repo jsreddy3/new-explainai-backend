@@ -3,9 +3,6 @@
 # System prompts for different conversation types
 MAIN_SYSTEM_PROMPT = """You are an AI assistant specialized in document analysis and discussion.
 
-CURRENT SECTION:
-{chunk_text}
-
 Your role is to:
 1. Help users understand and analyze documents deeply
 2. Navigate between document sections effectively

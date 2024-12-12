@@ -5,6 +5,7 @@ import logging
 from litellm import acompletion
 from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
+from src.utils.message_logger import MessageLogger
 
 logger = setup_logger(__name__)
 
@@ -13,6 +14,7 @@ class AIService:
     
     def __init__(self):
         logger.info(f"Initialized AIService with model: {self.MODEL}")
+        self.message_logger = MessageLogger()
         
     async def chat(
         self,
@@ -32,8 +34,6 @@ class AIService:
         """
         try:
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
-            # for i, msg in enumerate(messages):
-                # logger.info(f"Message {i} ({msg['role']}): {msg['content'][:500]}...")
             
             # Call AI model
             logger.info("Calling AI model...")
@@ -56,9 +56,20 @@ class AIService:
                     data={"token": content}
                 ))
                 response += content
-                
-            # Log final response
-            # logger.info(f"AI Service Chat Response: {response}")
+            
+            # Log exchange with response
+            await self.message_logger.log_exchange(
+                document_id=document_id,
+                conversation_id=conversation_id,
+                messages=messages,
+                response=response,
+                metadata={
+                    "model": self.MODEL,
+                    "stream": stream,
+                    "connection_id": connection_id,
+                    "status": "completed"
+                }
+            )
             
             # Emit completion event
             await event_bus.emit(Event(
@@ -72,6 +83,21 @@ class AIService:
             
         except Exception as e:
             logger.error(f"Error in chat: {str(e)}")
+            
+            # Log error
+            await self.message_logger.log_exchange(
+                document_id=document_id,
+                conversation_id=conversation_id,
+                messages=messages,
+                metadata={
+                    "model": self.MODEL,
+                    "stream": stream,
+                    "connection_id": connection_id,
+                    "status": "error",
+                    "error": str(e)
+                }
+            )
+            
             # Emit error event
             await event_bus.emit(Event(
                 type="chat.error",

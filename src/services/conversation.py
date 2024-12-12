@@ -527,34 +527,54 @@ class ConversationService:
         if conversation["type"] != "main":
             return messages
             
+        # First pass: Create basic structure with switches but no chunk content
         processed_messages = []
-        last_chunk_id = 0
-        added_content_chunks = set()
+        last_chunk_id = None
+        system_message = None
+        chunk_switches = []  # Track all switch messages for second pass
         
-        for msg in reversed(messages):
+        # First find and add system message if it exists
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_message = msg
+                break
+                
+        if system_message:
+            processed_messages.append(system_message)
+        
+        # Process remaining messages
+        for msg in messages:
+            if msg.get("role") == "system":
+                continue
+                
             current_chunk_id = msg.get("chunk_id", "")
+            
             if current_chunk_id and current_chunk_id != last_chunk_id:
                 switch_msg = {
                     "role": "user",
                     "content": f"<switched to chunk ID {current_chunk_id}>"
                 }
                 ack_msg = {
-                    "role": "assistant",
+                    "role": "assistant", 
                     "content": f"<acknowledged switch to chunk ID {current_chunk_id}>"
                 }
                 
-                if current_chunk_id not in added_content_chunks:
-                    chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=current_chunk_id, db=db)
-                    switch_msg["content"] += f", chunkText: {chunk['content']}"
-                    added_content_chunks.add(current_chunk_id)
-                
-                processed_messages.insert(0, ack_msg)
-                processed_messages.insert(0, switch_msg)
-                last_chunk_id = current_chunk_id
-            processed_messages.insert(0, msg)
-
-        # logger.info(f"Processed messages with chunk switches: {processed_messages}")
+                chunk_switches.append((len(processed_messages), current_chunk_id, switch_msg))
+                processed_messages.append(switch_msg)
+                processed_messages.append(ack_msg)
             
+            processed_messages.append(msg)
+            last_chunk_id = current_chunk_id
+
+        # Second pass: Add chunk content only to the most recent switch for each chunk ID
+        seen_chunks = set()
+        for idx, chunk_id, switch_msg in reversed(chunk_switches):
+            if chunk_id not in seen_chunks:
+                chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=chunk_id, db=db)
+                if chunk:
+                    processed_messages[idx]["content"] += f", chunkText: {chunk['content']}"
+                seen_chunks.add(chunk_id)
+
         return processed_messages
 
     async def _get_current_chunk_id(self, conversation: Dict, db: AsyncSession) -> Optional[str]:

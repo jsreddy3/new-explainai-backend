@@ -729,18 +729,24 @@ class ConversationService:
 
     async def _get_chunk(self, document_id: str, chunk_id: int, db: AsyncSession) -> Optional[Dict]:
         """Get a chunk by its sequence number within a document"""
-        sequence = chunk_id
-        result = await db.execute(
-            select(DocumentChunk)
-            .where(
-                and_(
-                    DocumentChunk.document_id == document_id,
-                    DocumentChunk.sequence == sequence
+        try:
+            # Convert chunk_id to integer if it's a string
+            sequence = int(chunk_id) if isinstance(chunk_id, str) else chunk_id
+            result = await db.execute(
+                select(DocumentChunk)
+                .where(
+                    and_(
+                        DocumentChunk.document_id == document_id,
+                        DocumentChunk.sequence == sequence
+                    )
                 )
             )
-        )
-        chunk = result.scalar_one_or_none()
-        return chunk.to_dict() if chunk else None
+            chunk = result.scalar_one_or_none()
+            return chunk.to_dict() if chunk else None
+        except ValueError:
+            # Handle case where chunk_id can't be converted to int
+            logger.error(f"Invalid chunk_id format: {chunk_id}")
+            return None
 
     async def _create_conversation(
         self,

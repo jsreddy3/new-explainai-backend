@@ -9,7 +9,9 @@ pydantic-settings==2.6.1
 sqlalchemy==2.0.27
 aiosqlite==0.20.0
 alembic==1.12.1
-psycopg2-binary==2.9.9  # Added for PostgreSQL support
+# Add these lines to requirements.txt:
+psycopg2-binary==2.9.9
+asyncpg==0.29.0
 
 # PDF Processing
 PyPDF2==3.0.1

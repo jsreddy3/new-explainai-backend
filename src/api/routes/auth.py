@@ -98,3 +98,12 @@ async def get_user_documents(
         }
         for doc in documents
     ]
+
+@router.get("/auth/config")
+async def get_auth_config():
+    """Get authentication configuration for frontend"""
+    return {
+        "googleClientId": settings.GOOGLE_CLIENT_ID,
+        "apiBaseUrl": settings.API_BASE_URL,
+        "environment": settings.ENVIRONMENT
+    }

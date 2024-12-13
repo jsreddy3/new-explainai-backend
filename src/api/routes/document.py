@@ -53,7 +53,7 @@ class WebSocketHandler:
         """Establish WebSocket connection and set up event listeners"""
         # Verify document access
         document = await self.document_service.get_document(self.document_id, self.db)
-        if not document or document.owner_id != str(self.user.id):
+        if not document or document["owner_id"] != str(self.user.id):
             await self.websocket.close(code=4003)
             return None
             
@@ -208,7 +208,8 @@ async def document_stream(
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
-        await handler.cleanup()
+        if 'handler' in locals():
+            await handler.cleanup()
 
 @router.post("/documents/upload")
 async def upload_document(

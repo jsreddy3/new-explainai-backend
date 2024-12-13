@@ -13,9 +13,20 @@
         .document-item:hover { background: #f5f5f5; }
         .conversation-item { padding: 8px; margin: 4px 0; background: #f9f9f9; }
         #errorDisplay { color: red; margin: 10px 0; }
+        .env-selector { margin-bottom: 20px; padding: 10px; background: #f0f0f0; border-radius: 4px; }
     </style>
 </head>
 <body>
+    <!-- Environment Selector -->
+    <div class="env-selector">
+        <h3>Environment</h3>
+        <select id="envSelector" onchange="updateEnvironment()">
+            <option value="local">Local (localhost:8000)</option>
+            <option value="heroku" selected>Heroku</option>
+        </select>
+        <div>Current API URL: <span id="currentApiUrl"></span></div>
+    </div>
+
     <!-- Error Display -->
     <div id="errorDisplay"></div>
 
@@ -68,6 +79,28 @@
     <script>
         let currentToken = null;
         let currentDocumentId = null;
+        
+        // Environment configuration
+        const config = {
+            local: {
+                httpUrl: 'http://localhost:8000',
+                wsUrl: 'ws://localhost:8000'
+            },
+            heroku: {
+                httpUrl: 'https://explainai-new-528ec8eb814a.herokuapp.com',
+                wsUrl: 'wss://explainai-new-528ec8eb814a.herokuapp.com'
+            }
+        };
+        
+        let currentEnv = 'heroku';  // Default to Heroku
+
+        function updateEnvironment() {
+            currentEnv = document.getElementById('envSelector').value;
+            document.getElementById('currentApiUrl').textContent = config[currentEnv].httpUrl;
+        }
+
+        // Initialize environment display
+        updateEnvironment();
 
         function showError(message) {
             const errorDisplay = document.getElementById('errorDisplay');
@@ -83,7 +116,7 @@
 
         async function loginWithGoogle(token) {
             try {
-                const response = await fetch(`http://localhost:8000/api/auth/google/login?token=${encodeURIComponent(token)}`, {
+                const response = await fetch(`${config[currentEnv].httpUrl}/api/auth/google/login?token=${encodeURIComponent(token)}`, {
                     method: 'POST'
                 });
                 
@@ -109,46 +142,45 @@
             document.getElementById('uploadSection').classList.add('hidden');
             document.getElementById('documentsSection').classList.add('hidden');
             document.getElementById('conversationsSection').classList.add('hidden');
-            document.getElementById('errorDisplay').textContent = '';
-            google.accounts.id.disableAutoSelect();
+            document.getElementById('userInfoDisplay').textContent = '';
         }
 
         // Document handlers
         async function uploadDocument() {
-          const fileInput = document.getElementById('fileInput');
-          const file = fileInput.files[0];
-          if (!file) {
-              showError('Please select a file first');
-              return;
-          }
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                showError('Please select a file first');
+                return;
+            }
 
-          const formData = new FormData();
-          formData.append('file', file);
+            const formData = new FormData();
+            formData.append('file', file);
 
-          try {
-              const response = await fetch('http://localhost:8000/api/documents/upload', {
-                  method: 'POST',
-                  headers: {
-                      'Authorization': `Bearer ${currentToken}`
-                  },
-                  body: formData
-              });
+            try {
+                const response = await fetch(`${config[currentEnv].httpUrl}/api/documents/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: formData
+                });
 
-              if (!response.ok) {
-                  throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
-              }
+                if (!response.ok) {
+                    throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+                }
 
-              const data = await response.json();
-              document.getElementById('uploadResult').textContent = JSON.stringify(data, null, 2);
-              listDocuments();
-          } catch (error) {
-              showError(`Upload error: ${error.message}`);
-          }
-      }
+                const data = await response.json();
+                document.getElementById('uploadResult').textContent = JSON.stringify(data, null, 2);
+                listDocuments();
+            } catch (error) {
+                showError(`Upload error: ${error.message}`);
+            }
+        }
 
         async function listDocuments() {
             try {
-                const response = await fetch('http://localhost:8000/api/auth/me/documents', {
+                const response = await fetch(`${config[currentEnv].httpUrl}/api/auth/me/documents`, {
                     headers: {
                         'Authorization': `Bearer ${currentToken}`
                     }
@@ -184,7 +216,7 @@
             if (!currentDocumentId) return;
 
             try {
-                const ws = new WebSocket(`ws://localhost:8000/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
+                const ws = new WebSocket(`${config[currentEnv].wsUrl}/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
                 
                 ws.onopen = () => {
                     ws.send(JSON.stringify({
@@ -218,7 +250,7 @@
             if (!currentDocumentId) return;
 
             try {
-                const ws = new WebSocket(`ws://localhost:8000/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
+                const ws = new WebSocket(`${config[currentEnv].wsUrl}/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
                 
                 ws.onopen = () => {
                     ws.send(JSON.stringify({

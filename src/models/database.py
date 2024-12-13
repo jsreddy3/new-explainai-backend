@@ -70,7 +70,8 @@ class Conversation(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     document_id = Column(String, ForeignKey('documents.id'))
-    chunk_id = Column(String, ForeignKey('document_chunks.id'), nullable=True)
+    chunk_id = Column(String, default=None)
+    real_chunk_id = Column(String, ForeignKey('document_chunks.id'), nullable=True)
     type = Column(String, default=ConversationType.MAIN)
     created_at = Column(DateTime, default=datetime.utcnow)
     meta_data = Column(JSON)

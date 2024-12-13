@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy.dialects.postgresql import JSON  
 from datetime import datetime
 from enum import Enum
 import uuid

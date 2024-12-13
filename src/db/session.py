@@ -1,17 +1,19 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import QueuePool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 from src.core.config import settings
 from src.core.logging import setup_logger
 
 logger = setup_logger(__name__)
 
+# Convert postgres:// to postgresql:// for SQLAlchemy
+DATABASE_URL = settings.DATABASE_URL
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+
 # Create async database engine
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,  # Disable SQL echoing to respect logging configuration
+    DATABASE_URL,
+    echo=False,
     future=True
 )
 

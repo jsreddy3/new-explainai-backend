@@ -8,7 +8,9 @@ logger = setup_logger(__name__)
 # Convert postgres:// to postgresql:// for SQLAlchemy
 DATABASE_URL = settings.DATABASE_URL
 if DATABASE_URL.startswith('postgres://'):
-    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql+psycopg://', 1)
+elif DATABASE_URL.startswith('postgresql://'):
+    DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
 
 # Create async database engine
 engine = create_async_engine(

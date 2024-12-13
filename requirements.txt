@@ -10,7 +10,7 @@ sqlalchemy==2.0.27
 aiosqlite==0.20.0
 alembic==1.12.1
 # Add these lines to requirements.txt:
-psycopg2-binary==2.9.9
+psycopg[binary]==3.1.18  # Async PostgreSQL driver
 asyncpg==0.29.0
 
 # PDF Processing

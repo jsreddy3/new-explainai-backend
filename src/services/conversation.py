@@ -243,7 +243,7 @@ class ConversationService:
                 type="conversation.message.send.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
-                data={"message": response}
+                data={"message": response, "conversation_id": str(conversation["id"])}
             ))
                 
         except Exception as e:

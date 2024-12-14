@@ -14,6 +14,9 @@
         .conversation-item { padding: 8px; margin: 4px 0; background: #f9f9f9; }
         #errorDisplay { color: red; margin: 10px 0; }
         .env-selector { margin-bottom: 20px; padding: 10px; background: #f0f0f0; border-radius: 4px; }
+        .message { padding: 8px; margin: 4px 0; border-radius: 4px; }
+        .assistant-message { background-color: #f5f5f5; margin-right: 20%; }
+        .user-message { background-color: #e3f2fd; margin-left: 20%; }
     </style>
 </head>
 <body>
@@ -76,9 +79,22 @@
         <div id="conversationsList"></div>
     </div>
 
+    <!-- Messages Section -->
+    <div class="section hidden" id="messagesSection">
+        <h2>Messages</h2>
+        <h3 id="currentConversationTitle"></h3>
+        <div id="messagesContainer" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"></div>
+        <div id="messageInput" style="display: flex; gap: 10px;">
+            <input type="text" id="messageText" style="flex-grow: 1; padding: 8px;" placeholder="Type your message...">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
     <script>
         let currentToken = null;
         let currentDocumentId = null;
+        let currentConversationId = null;
+        let wsConnection = null;
         
         // Environment configuration
         const config = {
@@ -142,6 +158,7 @@
             document.getElementById('uploadSection').classList.add('hidden');
             document.getElementById('documentsSection').classList.add('hidden');
             document.getElementById('conversationsSection').classList.add('hidden');
+            document.getElementById('messagesSection').classList.add('hidden');
             document.getElementById('userInfoDisplay').textContent = '';
         }
 
@@ -154,27 +171,43 @@
                 return;
             }
 
-            const formData = new FormData();
-            formData.append('file', file);
-
             try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                // Show upload status
+                document.getElementById('uploadResult').textContent = 'Uploading and processing document... This may take a few minutes.';
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minute timeout
+
                 const response = await fetch(`${config[currentEnv].httpUrl}/api/documents/upload`, {
                     method: 'POST',
+                    body: formData,
                     headers: {
                         'Authorization': `Bearer ${currentToken}`
                     },
-                    body: formData
+                    signal: controller.signal
                 });
+
+                clearTimeout(timeoutId);
 
                 if (!response.ok) {
                     throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
                 }
 
-                const data = await response.json();
-                document.getElementById('uploadResult').textContent = JSON.stringify(data, null, 2);
-                listDocuments();
+                const result = await response.json();
+                document.getElementById('uploadResult').textContent = 'Upload successful!';
+                
+                // Refresh documents list
+                await listDocuments();
+                return result;
             } catch (error) {
-                showError(`Upload error: ${error.message}`);
+                if (error.name === 'AbortError') {
+                    showError('Upload timed out. The document might still be processing in the background.');
+                } else {
+                    showError(`Upload error: ${error.message}`);
+                }
             }
         }
 
@@ -204,82 +237,196 @@
             }
         }
 
-        // Conversation handlers
-        function selectDocument(docId, title) {
-            currentDocumentId = docId;
-            document.getElementById('conversationsSection').classList.remove('hidden');
-            document.getElementById('currentDocumentTitle').textContent = title;
-            listConversations();
+        async function connectWebSocket(documentId) {
+            if (wsConnection) {
+                wsConnection.close();
+            }
+            
+            const wsUrl = `${config[currentEnv].wsUrl}/api/conversations/stream/${documentId}?token=${currentToken}`;
+            wsConnection = new WebSocket(wsUrl);
+            
+            wsConnection.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('WebSocket message:', data);
+                
+                // Handle different event types
+                switch(data.type) {
+                    case 'chat.token':
+                        appendAssistantToken(data.data.token);
+                        break;
+                    case 'conversation.messages.completed':
+                        displayMessages(data.data.messages);
+                        break;
+                    case 'conversation.message.send.completed':
+                        // Message sent successfully
+                        document.getElementById('messageText').value = '';
+                        break;
+                    case 'conversation.main.create.completed':
+                        currentConversationId = data.data.conversation_id;
+                        showMessagesSection();
+                        break;
+                    case 'conversation.list.completed':
+                        const conversationsList = document.getElementById('conversationsList');
+                        const conversations = data.data.conversations;
+                        conversationsList.innerHTML = Object.entries(conversations)
+                            .map(([id, conv]) => `
+                                <div class="conversation-item" onclick="selectConversation('${id}', 'Conversation ${id.slice(0,8)}')">
+                                    <strong>Conversation ${id.slice(0,8)}</strong><br>
+                                    <small>Created: ${new Date(conv.created_at).toLocaleString()}</small>
+                                    ${conv.highlight_text ? `<br><small>Context: ${conv.highlight_text}</small>` : ''}
+                                </div>
+                            `).join('');
+                        break;
+                }
+            };
+            
+            wsConnection.onclose = function() {
+                console.log('WebSocket connection closed');
+            };
+            
+            wsConnection.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                showError('WebSocket connection error');
+            };
         }
 
-        async function createConversation() {
-            if (!currentDocumentId) return;
+        function appendAssistantToken(token) {
+            const container = document.getElementById('messagesContainer');
+            let lastMessage = container.lastElementChild;
+            
+            if (!lastMessage || !lastMessage.classList.contains('assistant-message')) {
+                lastMessage = document.createElement('div');
+                lastMessage.classList.add('message', 'assistant-message');
+                container.appendChild(lastMessage);
+            }
+            
+            lastMessage.textContent += token;
+            container.scrollTop = container.scrollHeight;
+        }
 
-            try {
-                const ws = new WebSocket(`${config[currentEnv].wsUrl}/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
+        function displayMessages(messages) {
+            const container = document.getElementById('messagesContainer');
+            container.innerHTML = '';
+            
+            messages.forEach(message => {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message', `${message.role}-message`);
+                messageDiv.style.padding = '8px';
+                messageDiv.style.margin = '4px 0';
+                messageDiv.style.borderRadius = '4px';
                 
-                ws.onopen = () => {
-                    ws.send(JSON.stringify({
-                        type: "conversation.main.create",
-                        data: {
-                            document_id: currentDocumentId,
-                            content: "Test conversation",
-                            conversation_type: "main",
-                            chunk_id: 0
-                        }
-                    }));
-                };
+                if (message.role === 'user') {
+                    messageDiv.style.backgroundColor = '#e3f2fd';
+                    messageDiv.style.marginLeft = '20%';
+                } else if (message.role === 'assistant') {
+                    messageDiv.style.backgroundColor = '#f5f5f5';
+                    messageDiv.style.marginRight = '20%';
+                }
+                
+                messageDiv.textContent = message.content;
+                container.appendChild(messageDiv);
+            });
+            
+            container.scrollTop = container.scrollHeight;
+        }
 
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.type === "conversation.main.create.completed") {
-                        ws.close();
-                        listConversations();
+        function showMessagesSection() {
+            document.getElementById('messagesSection').classList.remove('hidden');
+        }
+
+        async function selectDocument(docId, title) {
+            currentDocumentId = docId;
+            currentConversationId = null; // Reset conversation
+            document.getElementById('currentDocumentTitle').textContent = title;
+            document.getElementById('conversationsSection').classList.remove('hidden');
+            document.getElementById('messagesSection').classList.add('hidden');
+            document.getElementById('messagesContainer').innerHTML = ''; // Clear messages
+            
+            // Connect WebSocket
+            await connectWebSocket(docId);
+            
+            // List conversations
+            await listConversations();
+        }
+
+        async function selectConversation(conversationId, title) {
+            currentConversationId = conversationId;
+            document.getElementById('currentConversationTitle').textContent = `Conversation ${conversationId.slice(0,8)}`;
+            document.getElementById('messagesSection').classList.remove('hidden');
+            
+            // Request messages for this conversation
+            if (wsConnection) {
+                wsConnection.send(JSON.stringify({
+                    type: 'conversation.messages.get',
+                    data: {
+                        conversation_id: conversationId
                     }
-                };
-
-                ws.onerror = (error) => {
-                    showError(`WebSocket error: ${error}`);
-                };
-            } catch (error) {
-                showError(`Create conversation error: ${error.message}`);
+                }));
             }
         }
 
         async function listConversations() {
-            if (!currentDocumentId) return;
-
-            try {
-                const ws = new WebSocket(`${config[currentEnv].wsUrl}/api/conversations/stream/${currentDocumentId}?token=${currentToken}`);
-                
-                ws.onopen = () => {
-                    ws.send(JSON.stringify({
-                        type: "conversation.list",
-                        data: { document_id: currentDocumentId }
-                    }));
-                };
-
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.type === "conversation.list.completed") {
-                        const conversationsList = document.getElementById('conversationsList');
-                        const conversations = data.data.conversations;
-                        conversationsList.innerHTML = Object.entries(conversations).map(([id, conv]) => `
-                            <div class="conversation-item">
-                                <strong>ID: ${id}</strong><br>
-                                <small>Created: ${new Date(conv.created_at).toLocaleString()}</small>
-                            </div>
-                        `).join('');
-                        ws.close();
-                    }
-                };
-
-                ws.onerror = (error) => {
-                    showError(`WebSocket error: ${error}`);
-                };
-            } catch (error) {
-                showError(`List conversations error: ${error.message}`);
+            if (!wsConnection) {
+                showError('WebSocket connection not established');
+                return;
             }
+            
+            wsConnection.send(JSON.stringify({
+                type: 'conversation.list',
+                data: {
+                    document_id: currentDocumentId
+                }
+            }));
+        }
+
+        async function createConversation() {
+            if (!wsConnection) return;
+            
+            wsConnection.send(JSON.stringify({
+                type: 'conversation.main.create',
+                data: {
+                    document_id: currentDocumentId,
+                    content: 'Test conversation',
+                    conversation_type: 'main',
+                    chunk_id: 0
+                }
+            }));
+        }
+
+        // Handle Enter key in message input
+        document.getElementById('messageText').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const messageText = document.getElementById('messageText').value.trim();
+            if (!messageText || !currentConversationId) return;
+            
+            wsConnection.send(JSON.stringify({
+                type: 'conversation.message.send',
+                data: {
+                    conversation_id: currentConversationId,
+                    content: messageText,
+                    conversation_type: 'main',
+                    chunk_id: 0
+                }
+            }));
+            
+            // Optimistically add user message
+            const container = document.getElementById('messagesContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', 'user-message');
+            messageDiv.style.padding = '8px';
+            messageDiv.style.margin = '4px 0';
+            messageDiv.style.borderRadius = '4px';
+            messageDiv.style.backgroundColor = '#e3f2fd';
+            messageDiv.style.marginLeft = '20%';
+            messageDiv.textContent = messageText;
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
         }
     </script>
 </body>

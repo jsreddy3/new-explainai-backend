@@ -71,6 +71,7 @@ class ConversationService:
                 task = asyncio.create_task(self._run_task(handler, event))
                 self.active_tasks.add(task)
                 task.add_done_callback(self.active_tasks.discard)
+                self.task_queue.task_done()  # Mark task as done after creating it
             except asyncio.CancelledError:
                 break
             except Exception as e:

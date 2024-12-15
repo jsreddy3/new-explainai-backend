@@ -31,7 +31,6 @@ class Settings(BaseSettings):
         "136d1b64-d4bb-4417-af9a-56837bd64e02",  # How is Inflation Measured?
         "0779a2bf-0f4a-442f-9726-df235906f684"   # Lord of the Rings
     ]
-    # EXAMPLE_DOCUMENT_IDS: list = ["017bebe9-8fed-4295-a666-ef9f8a718747"]
 
     # API Keys
     LLAMA_CLOUD_API_KEY: str

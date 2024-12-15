@@ -67,10 +67,14 @@ class ConversationService:
     async def _process_tasks(self):
         while not self.shutdown_event.is_set():
             try:
+                print(f"[CONV SERVICE] Task queue size before get: {self.task_queue.qsize()}")
                 handler, event = await self.task_queue.get()
+                print(f"[CONV SERVICE] Task queue size after get: {self.task_queue.qsize()}")
                 task = asyncio.create_task(self._run_task(handler, event))
                 self.active_tasks.add(task)
                 task.add_done_callback(self.active_tasks.discard)
+                print(f"[CONV SERVICE] Active tasks count: {len(self.active_tasks)}")
+                self.task_queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as e:

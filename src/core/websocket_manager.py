@@ -44,10 +44,12 @@ class WebSocketManager:
                         if (connection_id in self.connection_listeners and 
                             event.type in self.connection_listeners[connection_id]):
                             try:
+                                print(f"[WS MANAGER] Queue size before put for {connection_id}: {self.event_queues[connection_id].qsize()}")
                                 await asyncio.wait_for(
                                     self.event_queues[connection_id].put(event), 
-                                    timeout=1.0  # Prevent indefinite blocking
+                                    timeout=1.0
                                 )
+                                print(f"[WS MANAGER] Queue size after put for {connection_id}: {self.event_queues[connection_id].qsize()}")
                             except asyncio.QueueFull:
                                 logger.warning(f"Event queue full for connection {connection_id}")
                             except Exception as e:
@@ -58,7 +60,10 @@ class WebSocketManager:
     async def get_events(self, connection_id: str) -> Event:
         """Get events for a specific connection"""
         if connection_id in self.event_queues:
-            return await self.event_queues[connection_id].get()
+            print(f"[WS MANAGER] Queue size before get for {connection_id}: {self.event_queues[connection_id].qsize()}")
+            event = await self.event_queues[connection_id].get()
+            print(f"[WS MANAGER] Queue size after get for {connection_id}: {self.event_queues[connection_id].qsize()}")
+            return event
         raise ValueError(f"No queue found for connection {connection_id}")
 
     async def disconnect(self, connection_id: str, document_id: str, scope: str):

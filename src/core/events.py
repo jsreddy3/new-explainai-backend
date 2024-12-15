@@ -49,7 +49,9 @@ class EventBus:
         """Process events from the queue"""
         while True:
             try:
+                print(f"[EVENT BUS] Queue size before get: {self._event_queue.qsize()}")
                 event = await self._event_queue.get()
+                print(f"[EVENT BUS] Processing event: {event.type}, Queue size after get: {self._event_queue.qsize()}")
                 logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
                 logger.debug(f"[EVENT BUS] Event data: {event.data}")
                 
@@ -87,6 +89,7 @@ class EventBus:
         if not self._initialized:
             self.initialize()
         await self._event_queue.put(event)
+        print(f"[EVENT BUS] Queue size after put: {self._event_queue.qsize()}")
     
     def remove_listener(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
         """Remove a listener for an event type"""

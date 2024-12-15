@@ -42,9 +42,7 @@ async def drop_db():
 async def init_db():
     """Initialize database"""
     try:
-        # First drop all existing tables
-        await drop_db()
-        # Then create all tables
+        # Only create tables if they don't exist
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database initialized successfully")

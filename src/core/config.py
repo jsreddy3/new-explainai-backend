@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     MAX_CHUNKS_PER_DOC: int = 100
     SUPPORTED_MIME_TYPES: list = ["application/pdf"]
     # EXAMPLE_DOCUMENT_IDS: list = ["d62afae6-e762-4279-ab5d-78a771f83d55", "​​53fb3f46-0999-44a3-87a7-6a5d6af72459", "6ac53956-9a06-4d7f-9dc9-7b9058512bc7"]
-    EXAMPLE_DOCUMENT_IDS: list = ["4e571e50-6630-4892-b40d-aebfbbba0181"]
+    EXAMPLE_DOCUMENT_IDS: list = ["017bebe9-8fed-4295-a666-ef9f8a718747"]
 
     # API Keys
     LLAMA_CLOUD_API_KEY: str

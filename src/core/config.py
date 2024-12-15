@@ -6,7 +6,11 @@ class Settings(BaseSettings):
     # Server
     API_BASE_URL: str = "http://localhost:8000"  # Will be overridden in production
     ENVIRONMENT: str = "development"  # development, staging, production
-    CORS_ORIGINS: list = ["http://localhost:3000"]  # Will be overridden in production
+    CORS_ORIGINS: list = [
+        "http://localhost:3000",
+        "https://explainai-new-528ec8eb814a.herokuapp.com",
+        "https://explainai-new.vercel.app"
+    ]  # Will be overridden in production
     PORT: int = 8000  # Will be overridden by Heroku
     
     # Security
@@ -22,7 +26,9 @@ class Settings(BaseSettings):
     DEFAULT_CHUNK_SIZE: int = 50000
     MAX_CHUNKS_PER_DOC: int = 100
     SUPPORTED_MIME_TYPES: list = ["application/pdf"]
-    
+    # EXAMPLE_DOCUMENT_IDS: list = ["d62afae6-e762-4279-ab5d-78a771f83d55", "​​53fb3f46-0999-44a3-87a7-6a5d6af72459", "6ac53956-9a06-4d7f-9dc9-7b9058512bc7"]
+    EXAMPLE_DOCUMENT_IDS: list = ["4e571e50-6630-4892-b40d-aebfbbba0181"]
+
     # API Keys
     LLAMA_CLOUD_API_KEY: str
     GEMINI_API_KEY: str

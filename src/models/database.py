@@ -75,16 +75,15 @@ class Conversation(Base):
     type = Column(String, default=ConversationType.MAIN)
     created_at = Column(DateTime, default=datetime.utcnow)
     meta_data = Column(JSON)
-
-    # Existing relationships
+    is_demo = Column(Boolean, default=False)  # Flag for demo conversations
+    
+    # Relationships
     document = relationship("Document", back_populates="main_conversation",
                           foreign_keys=[document_id])
     chunk = relationship("DocumentChunk", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation")
-    
-    # Add new relationship for questions
     questions = relationship("Question", back_populates="conversation")
-
+    
     def to_dict(self):
       return {
         "id": self.id,

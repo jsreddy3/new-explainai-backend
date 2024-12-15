@@ -10,6 +10,7 @@ from datetime import datetime
 
 from ..models.database import Document, DocumentChunk, Conversation, Message, Question, ConversationType
 from ..core.events import event_bus, Event
+from ..core.config import settings
 from ..core.logging import setup_logger
 from .ai import AIService
 from ..prompts.manager import PromptManager
@@ -91,16 +92,23 @@ class ConversationService:
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
         try:
             document_id = event.document_id
+            is_demo = document_id in settings.EXAMPLE_DOCUMENT_IDS
             
             # Get first chunk
-            first_chunk = await self._get_first_chunk(document_id, db)  # Pass db
+            first_chunk = await self._get_first_chunk(document_id, db)
             
-            # Create conversation
+            # Create conversation with connection_id in meta_data for demo conversations
+            meta_data = {}
+            if is_demo:
+                meta_data["connection_id"] = event.connection_id
+                
             conversation = await self._create_conversation(
                 document_id=document_id,
                 conversation_type="main",
                 chunk_id=0,
-                db=db  # Pass db
+                db=db,
+                meta_data=meta_data,
+                is_demo=is_demo
             )
 
             # Create initial system message
@@ -136,20 +144,27 @@ class ConversationService:
             document_id = event.document_id
             chunk_id = data["chunk_id"]
             highlight_text = data.get("highlight_text", "")
+            is_demo = document_id in settings.EXAMPLE_DOCUMENT_IDS
             
             # Get chunk
             chunk = await self._get_chunk(document_id=document_id, chunk_id=chunk_id, db=db)  # Pass db
             
+            # Create conversation meta_data
+            meta_data = {
+                "highlight_text": highlight_text,
+                "highlight_range": data["highlight_range"]
+            }
+            if is_demo:
+                meta_data["connection_id"] = event.connection_id
+                
             # Create conversation
             conversation = await self._create_conversation(
                 document_id=document_id,
                 conversation_type="highlight",
                 chunk_id=chunk_id,
                 db=db,
-                meta_data={
-                    "highlight_text": highlight_text,
-                    "highlight_range": data["highlight_range"]
-                }
+                meta_data=meta_data,
+                is_demo=is_demo
             )
             # Create initial system message
             system_prompt = self.prompt_manager.create_highlight_system_prompt(
@@ -412,7 +427,7 @@ class ConversationService:
                 connection_id=event.connection_id,
                 data={
                     "conversation_id": conversation_id,
-                    "questions": [q.to_dict() for q in questions]
+                    "questions": [q.strip() for q in questions]
                 }
             ))
         except Exception as e:
@@ -473,14 +488,26 @@ class ConversationService:
         """List all conversations for a document"""
         try:
             document_id = event.document_id
+            is_demo = document_id in settings.EXAMPLE_DOCUMENT_IDS
             
-            # Query conversations with the given document_id
-            stmt = select(Conversation).where(Conversation.document_id == document_id)
+            # Build query
+            query = select(Conversation).where(
+                Conversation.document_id == document_id
+            )
             
-            result = await db.execute(stmt)
+            # For demo documents, only show conversations for this connection
+            if is_demo:
+                query = query.where(
+                    and_(
+                        Conversation.is_demo == True,
+                        Conversation.meta_data['connection_id'].astext == event.connection_id
+                    )
+                )
+            
+            result = await db.execute(query)
             conversations = result.scalars().all()
             
-            # Convert conversations to dict format
+            # Convert conversations to dict format with ID as key
             conversations_data = {
                 str(conv.id): {
                     "document_id": str(conv.document_id),
@@ -491,7 +518,6 @@ class ConversationService:
                 for conv in conversations
             }
 
-            # Emit success event
             await event_bus.emit(Event(
                 type="conversation.list.completed",
                 document_id=document_id,
@@ -754,15 +780,39 @@ class ConversationService:
         conversation_type: str,
         chunk_id: Optional[str] = None,
         db: AsyncSession = None,
-        meta_data: Optional[Dict] = None
-    ) -> Dict:
+        meta_data: Optional[Dict] = None,
+        is_demo: bool = False
+    ):
+        """Create a new conversation"""
         conversation = Conversation(
             document_id=document_id,
-            chunk_id=chunk_id,
             type=conversation_type,
-            meta_data=meta_data
+            chunk_id=chunk_id,
+            meta_data=meta_data or {},
+            is_demo=is_demo
         )
         db.add(conversation)
         await db.flush()
-        await db.refresh(conversation)
         return conversation.to_dict()
+
+    async def cleanup_demo_conversations(self, connection_id: str, db: AsyncSession):
+        """Clean up demo conversations for a connection when it disconnects"""
+        try:
+            # Find all demo conversations created during this connection
+            result = await db.execute(
+                select(Conversation).where(
+                    and_(
+                        Conversation.is_demo == True,
+                        Conversation.meta_data['connection_id'].astext == connection_id
+                    )
+                )
+            )
+            conversations = result.scalars().all()
+
+            # Delete conversations and their messages
+            for conversation in conversations:
+                await db.delete(conversation)
+            
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Error cleaning up demo conversations: {e}")

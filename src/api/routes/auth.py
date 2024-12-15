@@ -1,10 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
 from datetime import datetime, timedelta
 from typing import Optional, Dict
+from src.core.logging import setup_logger
+
+logger = setup_logger(__name__)
 
 from ...models.database import User, Document
 from ...db.session import get_db
@@ -71,8 +74,27 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+async def get_current_user_or_none(
+    token: Optional[str] = Depends(oauth2_scheme),
+    document_id: Optional[str] = None,
+    auth_service: AuthService = Depends(get_auth_service)
+) -> Optional[User]:
+    """Get current user from JWT token, allowing None only for example documents.
+    
+    If document_id is None, behaves like normal auth.
+    If document_id is provided and in EXAMPLE_DOCUMENT_IDS, allows unauthenticated access.
+    Otherwise requires authentication.
+    """
+    # If document_id provided and it's an example document, allow unauthenticated access
+    if document_id is not None and document_id in settings.EXAMPLE_DOCUMENT_IDS:
+        return None
+    
+    logger.info("Received token: %s", token)
+    # For all other cases (no document_id or non-example document), require auth
+    return await get_current_user(token, auth_service)
+
 @router.get("/auth/me")
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
+async def get_current_user_info(current_user: User = Depends(get_current_user_or_none)):
     """Get current user information"""
     return {
         "id": str(current_user.id),
@@ -82,12 +104,28 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 
 @router.get("/auth/me/documents")
 async def get_user_documents(
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_or_none),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all documents for the current user"""
+    """Get all documents for the current user or example documents if not authenticated"""
+    if current_user is None:
+        # Get example documents from database
+        result = await db.execute(
+            select(Document).where(Document.id.in_(settings.EXAMPLE_DOCUMENT_IDS))
+        )
+        example_docs = result.scalars().all()
+        return [
+            {
+                "id": str(doc.id),
+                "title": doc.title,
+                "created_at": doc.created_at.isoformat()
+            }
+            for doc in example_docs
+        ]
+    
+    # Get user's documents
     result = await db.execute(
-        select(Document).where(Document.owner_id == current_user.id)
+        select(Document).where(Document.owner_id == str(current_user.id))
     )
     documents = result.scalars().all()
     return [

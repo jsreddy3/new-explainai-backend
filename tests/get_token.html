@@ -36,6 +36,7 @@
     <!-- Auth Section -->
     <div class="section" id="authSection">
         <h2>Authentication</h2>
+        <button onclick="enterDemoMode()" class="demo-button">Try Demo Mode</button>
         <div id="g_id_onload"
              data-client_id="395094655648-tpf5gvtmk7h3c086gp6ubf2qgupf8uib.apps.googleusercontent.com"
              data-callback="handleCredentialResponse">
@@ -108,8 +109,9 @@
             }
         };
         
-        let currentEnv = 'heroku';  // Default to Heroku
-
+        let currentEnv = 'local';  // Default to local
+        let isDemoMode = false;    // Track if we're in demo mode
+        
         function updateEnvironment() {
             currentEnv = document.getElementById('envSelector').value;
             document.getElementById('currentApiUrl').textContent = config[currentEnv].httpUrl;
@@ -213,14 +215,12 @@
 
         async function listDocuments() {
             try {
-                const response = await fetch(`${config[currentEnv].httpUrl}/api/auth/me/documents`, {
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
-                    }
-                });
-
+                const url = `${config[currentEnv].httpUrl}/api/${isDemoMode ? 'documents/examples' : 'auth/me/documents'}`;
+                const headers = !isDemoMode && currentToken ? { 'Authorization': `Bearer ${currentToken}` } : {};
+                
+                const response = await fetch(url, { headers });
                 if (!response.ok) {
-                    throw new Error(`Failed to list documents: ${response.status} ${response.statusText}`);
+                    throw new Error(`Failed to list documents: ${response.status}`);
                 }
 
                 const data = await response.json();
@@ -242,7 +242,7 @@
                 wsConnection.close();
             }
             
-            const wsUrl = `${config[currentEnv].wsUrl}/api/conversations/stream/${documentId}?token=${currentToken}`;
+            const wsUrl = `${config[currentEnv].wsUrl}/api/conversations/stream/${documentId}${!isDemoMode ? `?token=${currentToken}` : ''}`;
             wsConnection = new WebSocket(wsUrl);
             
             wsConnection.onmessage = function(event) {
@@ -391,6 +391,13 @@
                     chunk_id: 0
                 }
             }));
+        }
+
+        async function enterDemoMode() {
+            isDemoMode = true;
+            document.getElementById('uploadSection').classList.add('hidden');
+            document.getElementById('documentsSection').classList.remove('hidden');
+            listDocuments();
         }
 
         // Handle Enter key in message input

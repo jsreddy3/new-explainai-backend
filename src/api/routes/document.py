@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
@@ -13,7 +14,7 @@ from src.core.events import event_bus, Event
 from src.core.logging import setup_logger
 from src.core.websocket_manager import manager
 from src.models.database import Document, DocumentChunk
-from ..routes.auth import get_current_user, User
+from ..routes.auth import get_current_user, get_current_user_or_none, User
 from ...services.auth import AuthService
 from ...core.config import settings
 
@@ -22,7 +23,7 @@ pdf_service = PDFService()
 router = APIRouter()
 
 class WebSocketHandler:
-    def __init__(self, websocket: WebSocket, document_id: str, user: User, db: AsyncSession):
+    def __init__(self, websocket: WebSocket, document_id: str, user: Optional[User], db: AsyncSession):
         self.websocket = websocket
         self.document_id = document_id
         self.user = user
@@ -53,10 +54,20 @@ class WebSocketHandler:
         """Establish WebSocket connection and set up event listeners"""
         # Verify document access
         document = await self.document_service.get_document(self.document_id, self.db)
-        if not document or document["owner_id"] != str(self.user.id):
-            await self.websocket.close(code=4003)
+        if not document:
+            await self.websocket.close(code=4003)  # Document doesn't exist
             return None
             
+        # Check if this is an example document
+        if self.document_id in settings.EXAMPLE_DOCUMENT_IDS:
+            # Allow access to example documents
+            pass
+        else:
+            # For non-example documents, require authenticated user who owns the document
+            if not self.user or document["owner_id"] != str(self.user.id):
+                await self.websocket.close(code=4003)  # Not authorized
+                return None
+        
         # Generate a unique connection ID
         self.connection_id = str(uuid.uuid4())
         
@@ -186,17 +197,14 @@ class WebSocketHandler:
 async def document_stream(
     websocket: WebSocket,
     document_id: str,
-    token: str = Query(...),
+    token: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
     """Stream document events via WebSocket"""
     try:
-        # Verify JWT token
+        # Get user (might be None for example documents)
         auth_service = AuthService(db)
-        user = await auth_service.get_current_user(token)
-        if not user:
-            await websocket.close(code=4003)
-            return
+        user = await get_current_user_or_none(token, document_id, auth_service)
 
         handler = WebSocketHandler(websocket, document_id, user, db)
         connection_id = await handler.connect()
@@ -210,6 +218,26 @@ async def document_stream(
     finally:
         if 'handler' in locals():
             await handler.cleanup()
+
+@router.get("/documents/examples")
+async def list_example_documents(
+    db: AsyncSession = Depends(get_db)
+):
+    """List all example documents. No authentication required."""
+    print(settings.EXAMPLE_DOCUMENT_IDS)
+    result = await db.execute(
+        select(Document).where(Document.id.in_(settings.EXAMPLE_DOCUMENT_IDS))
+    )
+    example_docs = result.scalars().all()
+    print(example_docs)
+    return [
+        {
+            "id": str(doc.id),
+            "title": doc.title,
+            "created_at": doc.created_at.isoformat()
+        }
+        for doc in example_docs
+    ]
 
 @router.post("/documents/upload")
 async def upload_document(

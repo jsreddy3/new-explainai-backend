@@ -31,7 +31,7 @@ class ConversationService:
             self.AsyncSessionLocal = sessionmaker(
                 engine,
                 class_=AsyncSession,
-                expire_on_commit=False
+                expire_on_commit=True
             )
             self.ai_service = AIService()  # Remove db dependency
             self.prompt_manager = PromptManager()
@@ -71,7 +71,6 @@ class ConversationService:
                 task = asyncio.create_task(self._run_task(handler, event))
                 self.active_tasks.add(task)
                 task.add_done_callback(self.active_tasks.discard)
-                self.task_queue.task_done()  # Mark task as done after creating it
             except asyncio.CancelledError:
                 break
             except Exception as e:

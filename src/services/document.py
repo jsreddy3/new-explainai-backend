@@ -27,7 +27,7 @@ class DocumentService:
             self.AsyncSessionLocal = sessionmaker(
                 engine,
                 class_=AsyncSession,
-                expire_on_commit=False
+                expire_on_commit=True
             )
             self.pdf_service = PDFService()
 

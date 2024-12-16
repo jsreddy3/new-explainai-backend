@@ -20,15 +20,16 @@ def log_memory_stats(context=""):
     process = psutil.Process()
     mem = process.memory_info()
     logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
-    # Log document stats
-    if DocumentService._instance:
-        logger.info(f"[DOCUMENTS] Cached documents: {len(DocumentService._instance._documents)}")
     # Log object counts
     all_objects = gc.get_objects()
     document_count = sum(1 for obj in all_objects if isinstance(obj, Document))
     logger.info(f"[OBJECTS] Document objects: {document_count}")
     chunk_count = sum(1 for obj in all_objects if isinstance(obj, DocumentChunk))
     logger.info(f"[OBJECTS] Chunk objects: {chunk_count}")
+    # Log SQLAlchemy session info
+    from sqlalchemy.orm import Session
+    session_count = sum(1 for obj in all_objects if isinstance(obj, Session))
+    logger.info(f"[SQLALCHEMY] Active sessions: {session_count}")
 
 class DocumentService:
     _instance = None

@@ -26,6 +26,26 @@ def get_memory_usage():
     process = psutil.Process(os.getpid())
     return process.memory_info().rss / 1024 / 1024  # Convert to MB
 
+def log_memory_stats():
+    process = psutil.Process()
+    mem = process.memory_info()
+    logger.info(f"[MEMORY DETAIL] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
+    # Log SQLAlchemy stats
+    if hasattr(process, '_session_factory'):
+        logger.info(f"[SQLALCHEMY] Session pool size: {len(process._session_factory.kw['pool'])}")
+    # Log number of objects in memory
+    all_objects = gc.get_objects()
+    logger.info(f"[OBJECTS] Total Python objects: {len(all_objects)}")
+    # Log specific object counts
+    from sqlalchemy.orm import Session
+    session_count = sum(1 for obj in all_objects if isinstance(obj, Session))
+    logger.info(f"[OBJECTS] SQLAlchemy Sessions: {session_count}")
+    # Log event queues
+    from ..core.events import EventBus
+    event_bus = EventBus._instance
+    if event_bus:
+        logger.info(f"[QUEUES] EventBus queue size: {event_bus._queue.qsize() if hasattr(event_bus, '_queue') else 'N/A'}")
+
 class ConversationService:
     _instance = None
     _initialized = False
@@ -93,40 +113,47 @@ class ConversationService:
         """Run a task with proper session management and cleanup"""
         db = None
         session_id = id(db) if db else None
-        logger.info(f"[MEMORY] Before task - Memory usage: {get_memory_usage():.2f}MB")
-        logger.info(f"[SESSION] Creating new session {session_id} for event {event.type}")
+        
+        logger.info("=== MEMORY CHECKPOINT: Before Task Start ===")
+        log_memory_stats()
         
         try:
             async with self.semaphore:
                 db = self.AsyncSessionLocal()
                 session_id = id(db)
                 logger.info(f"[SESSION] Created session {session_id}")
+                
+                logger.info("=== MEMORY CHECKPOINT: After Session Creation ===")
+                log_memory_stats()
+                
                 try:
                     await handler(event, db)
+                    logger.info("=== MEMORY CHECKPOINT: After Handler Execution ===")
+                    log_memory_stats()
                 except Exception as e:
                     logger.error(f"[SESSION] Error in handler for session {session_id}: {e}")
                     await db.rollback()
-                    logger.info(f"[SESSION] Rolled back session {session_id}")
                     raise
                 finally:
                     if db:
-                        logger.info(f"[SESSION] Closing session {session_id}")
                         await db.close()
-                        logger.info(f"[SESSION] Closed session {session_id}")
+                        logger.info("=== MEMORY CHECKPOINT: After Session Close ===")
+                        log_memory_stats()
         except Exception as e:
             logger.error(f"[SESSION] Task execution error for session {session_id}: {e}")
             if not isinstance(e, ValueError) or "already emitted" not in str(e):
                 await self._emit_error_event(event, str(e))
         finally:
             if db and not db.is_active:
-                logger.info(f"[SESSION] Final cleanup of session {session_id}")
                 await db.close()
-                logger.info(f"[SESSION] Final cleanup complete for session {session_id}")
-        
+            
             # Force garbage collection and log memory
-            gc.collect()
-            logger.info(f"[MEMORY] After task - Memory usage: {get_memory_usage():.2f}MB")
+            collected = gc.collect()
+            logger.info(f"=== MEMORY CHECKPOINT: Final State ===")
+            log_memory_stats()
+            logger.info(f"[GC] Collected {collected} objects")
             logger.info(f"[MEMORY] Active tasks: {len(self.active_tasks)}")
+            logger.info(f"[MEMORY] After task - Memory usage: {get_memory_usage():.2f}MB")
 
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
         try:

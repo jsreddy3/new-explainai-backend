@@ -4,6 +4,9 @@ from typing import Dict, List, Callable, Awaitable, Any, Optional
 import json
 from ..core.logging import setup_logger
 from collections import defaultdict
+import psutil
+import gc
+from loguru import logger
 
 logger = setup_logger(__name__)
 
@@ -24,6 +27,21 @@ class Event:
         if self.connection_id:
             result["connection_id"] = self.connection_id
         return result
+
+def log_memory_stats(context=""):
+    process = psutil.Process()
+    mem = process.memory_info()
+    logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
+    # Log event bus stats
+    if EventBus._instance:
+        logger.info(f"[EVENT BUS] Queue size: {EventBus._instance._event_queue.qsize()}")
+        logger.info(f"[EVENT BUS] Number of handlers: {len(EventBus._instance.listeners)}")
+    # Log object counts
+    all_objects = gc.get_objects()
+    event_count = sum(1 for obj in all_objects if isinstance(obj, Event))
+    logger.info(f"[OBJECTS] Event objects: {event_count}")
+    handler_count = sum(1 for obj in all_objects if callable(obj) and hasattr(obj, '__name__'))
+    logger.info(f"[OBJECTS] Event handlers: {handler_count}")
 
 class EventBus:
     def __init__(self):
@@ -48,6 +66,7 @@ class EventBus:
     async def _process_events(self):
         """Process events from the queue"""
         while True:
+            log_memory_stats("Before Event Process")
             try:
                 print(f"[EVENT BUS] Queue size before get: {self._event_queue.qsize()}")
                 event = await self._event_queue.get()
@@ -76,6 +95,7 @@ class EventBus:
                             logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
                 
                 self._event_queue.task_done()
+                log_memory_stats("After Event Process")
             except Exception as e:
                 logger.error(f"EVENT BUS: Error processing event: {str(e)}")
     
@@ -85,11 +105,13 @@ class EventBus:
         self.listeners[event_type].append(callback)
     
     async def emit(self, event: Event):
-        """Emit an event to all registered listeners"""
+        log_memory_stats("Before Event Emit")
         if not self._initialized:
             self.initialize()
+        print(f"[EVENT BUS] Queue size before put: {self._event_queue.qsize()}")
         await self._event_queue.put(event)
         print(f"[EVENT BUS] Queue size after put: {self._event_queue.qsize()}")
+        log_memory_stats("After Event Emit")
     
     def remove_listener(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
         """Remove a listener for an event type"""

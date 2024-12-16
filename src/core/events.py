@@ -4,9 +4,6 @@ from typing import Dict, List, Callable, Awaitable, Any, Optional
 import json
 from ..core.logging import setup_logger
 from collections import defaultdict
-import psutil
-import gc
-from loguru import logger
 
 logger = setup_logger(__name__)
 
@@ -28,20 +25,6 @@ class Event:
             result["connection_id"] = self.connection_id
         return result
 
-def log_memory_stats(context=""):
-    process = psutil.Process()
-    mem = process.memory_info()
-    logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
-    # Log event bus stats
-    logger.info(f"[EVENT BUS] Queue size: {event_bus._event_queue.qsize()}")
-    logger.info(f"[EVENT BUS] Number of handlers: {len(event_bus.listeners)}")
-    # Log object counts
-    all_objects = gc.get_objects()
-    event_count = sum(1 for obj in all_objects if isinstance(obj, Event))
-    logger.info(f"[OBJECTS] Event objects: {event_count}")
-    handler_count = sum(1 for obj in all_objects if callable(obj) and hasattr(obj, '__name__'))
-    logger.info(f"[OBJECTS] Event handlers: {handler_count}")
-
 class EventBus:
     def __init__(self):
         self.listeners: Dict[str, List[Callable[[Event], Awaitable[None]]]] = defaultdict(list)
@@ -49,6 +32,41 @@ class EventBus:
         self._task = None
         self._initialized = False
         self.logger = setup_logger(__name__)
+        
+        # Track memory usage periodically
+        self._memory_check_task = None
+        if not self._memory_check_task:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            self._memory_check_task = loop.create_task(self._log_memory_usage())
+
+    async def _log_memory_usage(self):
+        import sys
+        import psutil
+        import os
+        while True:
+            total_listeners = sum(len(listeners) for listeners in self.listeners.values())
+            # Get size of listeners dict
+            listeners_size = sys.getsizeof(self.listeners)
+            for event_type, handlers in self.listeners.items():
+                listeners_size += sys.getsizeof(event_type)
+                for handler in handlers:
+                    listeners_size += sys.getsizeof(handler)
+            
+            # Get process memory
+            process = psutil.Process(os.getpid())
+            memory_info = process.memory_info()
+            
+            self.logger.info(f"[EVENT BUS MEMORY] Total listeners: {total_listeners}")
+            self.logger.info(f"[EVENT BUS MEMORY] Listeners by type: {[(k, len(v)) for k, v in self.listeners.items()]}")
+            self.logger.info(f"[EVENT BUS MEMORY] Listeners size: {listeners_size / 1024 / 1024:.2f} MB")
+            self.logger.info(f"[EVENT BUS MEMORY] Process RSS: {memory_info.rss / 1024 / 1024:.2f} MB")
+            self.logger.info(f"[EVENT BUS MEMORY] Process VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
+            
+            await asyncio.sleep(10)  # Log every 10 seconds
     
     def initialize(self):
         """Initialize the event bus if not already initialized"""
@@ -65,11 +83,8 @@ class EventBus:
     async def _process_events(self):
         """Process events from the queue"""
         while True:
-            log_memory_stats("Before Event Process")
             try:
-                print(f"[EVENT BUS] Queue size before get: {self._event_queue.qsize()}")
                 event = await self._event_queue.get()
-                print(f"[EVENT BUS] Processing event: {event.type}, Queue size after get: {self._event_queue.qsize()}")
                 logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
                 logger.debug(f"[EVENT BUS] Event data: {event.data}")
                 
@@ -94,57 +109,34 @@ class EventBus:
                             logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
                 
                 self._event_queue.task_done()
-                log_memory_stats("After Event Process")
             except Exception as e:
                 logger.error(f"EVENT BUS: Error processing event: {str(e)}")
     
     def on(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
         """Register a listener for an event type"""
-        logger.info(f"[EVENT BUS] Registering handler for event type: {event_type}")
+        self.logger.info(f"[EVENT BUS] Registering handler {callback.__name__} for event type: {event_type}")
         self.listeners[event_type].append(callback)
+        total_listeners = sum(len(listeners) for listeners in self.listeners.values())
+        self.logger.info(f"[EVENT BUS] Total listeners after registration: {total_listeners}")
     
     async def emit(self, event: Event):
-        log_memory_stats("Before Event Emit")
+        """Emit an event to all registered listeners"""
         if not self._initialized:
             self.initialize()
-        print(f"[EVENT BUS] Queue size before put: {self._event_queue.qsize()}")
         await self._event_queue.put(event)
-        print(f"[EVENT BUS] Queue size after put: {self._event_queue.qsize()}")
-        log_memory_stats("After Event Emit")
     
-    def remove_listener(self, event_type: str, callback: Optional[Callable[[Event], Awaitable[None]]] = None):
-        """Remove a listener for an event type.
-        
-        Args:
-            event_type: The event type to remove listeners for
-            callback: Optional specific callback to remove. If None, removes all listeners for the event type.
-        """
+    def remove_listener(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
+        """Remove a listener for an event type"""
         if event_type in self.listeners:
-            if callback is None:
-                # Remove all listeners for this event type
+            self.logger.info(f"[EVENT BUS] Removing handler {callback.__name__} for event type: {event_type}")
+            self.listeners[event_type].remove(callback)
+            if not self.listeners[event_type]:
                 del self.listeners[event_type]
-            else:
-                # Remove specific callback
-                try:
-                    self.listeners[event_type].remove(callback)
-                except ValueError:
-                    # Callback wasn't in the list
-                    pass
-                
-                # Clean up empty listener lists
-                if not self.listeners[event_type]:
-                    del self.listeners[event_type]
-
-    def remove_all_listeners(self):
-        """Remove all event listeners."""
-        self.listeners.clear()
-
+            total_listeners = sum(len(listeners) for listeners in self.listeners.values())
+            self.logger.info(f"[EVENT BUS] Total listeners after removal: {total_listeners}")
+    
     async def shutdown(self):
         """Shutdown the event bus"""
-        # First remove all listeners
-        self.remove_all_listeners()
-        
-        # Then cancel the processing task
         if self._task:
             self._task.cancel()
             try:

@@ -4,9 +4,6 @@ from sqlalchemy import select
 import uuid
 import asyncio
 from sqlalchemy.orm import sessionmaker
-import psutil
-import gc
-from loguru import logger
 
 from ..models.database import Document, DocumentChunk
 from ..core.logging import setup_logger
@@ -15,21 +12,6 @@ from ..core.events import Event, event_bus
 from ..db.session import engine
 
 logger = setup_logger(__name__)
-
-def log_memory_stats(context=""):
-    process = psutil.Process()
-    mem = process.memory_info()
-    logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
-    # Log object counts
-    all_objects = gc.get_objects()
-    document_count = sum(1 for obj in all_objects if isinstance(obj, Document))
-    logger.info(f"[OBJECTS] Document objects: {document_count}")
-    chunk_count = sum(1 for obj in all_objects if isinstance(obj, DocumentChunk))
-    logger.info(f"[OBJECTS] Chunk objects: {chunk_count}")
-    # Log SQLAlchemy session info
-    from sqlalchemy.orm import Session
-    session_count = sum(1 for obj in all_objects if isinstance(obj, Session))
-    logger.info(f"[SQLALCHEMY] Active sessions: {session_count}")
 
 class DocumentService:
     _instance = None
@@ -99,7 +81,6 @@ class DocumentService:
             logger.error(f"Task execution error: {e}")
 
     async def handle_list_chunks(self, event: Event, db: AsyncSession):
-        log_memory_stats("Before Handle List Chunks")
         try:
             chunks = await self.get_document_chunks(event.document_id, db)
             await event_bus.emit(Event(
@@ -116,10 +97,8 @@ class DocumentService:
                 connection_id=event.connection_id,
                 data={"error": str(e)}
             ))
-        log_memory_stats("After Handle List Chunks")
 
     async def handle_get_metadata(self, event: Event, db: AsyncSession):
-        log_memory_stats("Before Handle Get Metadata")
         logger.info("Handling request for metadata")
         try:
             document = await self.get_document(event.document_id, db)
@@ -138,10 +117,8 @@ class DocumentService:
                 connection_id=event.connection_id,
                 data={"error": str(e)}
             ))
-        log_memory_stats("After Handle Get Metadata")
 
     async def handle_navigate_chunks(self, event: Event, db: AsyncSession):
-        log_memory_stats("Before Handle Navigate Chunks")
         try:
             chunk_data = await self.navigate_chunks(
                 event.document_id,
@@ -162,10 +139,8 @@ class DocumentService:
                 connection_id=event.connection_id,
                 data={"error": str(e)}
             ))
-        log_memory_stats("After Handle Navigate Chunks")
 
     async def handle_process_document(self, event: Event, db: AsyncSession):
-        log_memory_stats("Before Handle Process Document")
         try:
             document = await self.get_document(event.document_id, db)
             if document:
@@ -185,10 +160,8 @@ class DocumentService:
                 connection_id=event.connection_id,
                 data={"error": str(e)}
             ))
-        log_memory_stats("After Handle Process Document")
 
     async def get_document(self, document_id: str, db: AsyncSession) -> Optional[Dict]:
-        log_memory_stats("Before Get Document")
         try:
             logger.info(f"Getting document: {document_id}")
             result = await db.execute(
@@ -229,10 +202,8 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error getting document: {str(e)}")
             return None
-        log_memory_stats("After Get Document")
 
     async def get_document_chunks(self, document_id: str, db: AsyncSession) -> List[Dict]:
-        log_memory_stats("Before Get Document Chunks")
         try:
             result = await db.execute(
                 select(DocumentChunk)
@@ -252,10 +223,8 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error getting document chunks: {str(e)}")
             return []
-        log_memory_stats("After Get Document Chunks")
 
     async def navigate_chunks(self, document_id: str, chunk_index: int, db: AsyncSession) -> Optional[Dict]:
-        log_memory_stats("Before Navigate Chunks")
         try:
             result = await db.execute(
                 select(DocumentChunk)
@@ -288,19 +257,15 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error navigating chunks: {str(e)}")
             return None
-        log_memory_stats("After Navigate Chunks")
 
     async def get_chunk_content(self, chunk_id: str, db: AsyncSession) -> Optional[str]:
-        log_memory_stats("Before Get Chunk Content")
         result = await db.execute(
             select(DocumentChunk).where(DocumentChunk.id == chunk_id)
         )
         chunk = result.scalar_one_or_none()
         return chunk.content if chunk else None
-        log_memory_stats("After Get Chunk Content")
 
     async def list_documents(self, db: AsyncSession, skip: int = 0, limit: int = 10) -> List[Dict]:
-        log_memory_stats("Before List Documents")
         try:
             result = await db.execute(
                 select(Document)
@@ -321,7 +286,6 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error listing documents: {str(e)}")
             return []
-        log_memory_stats("After List Documents")
 
     async def shutdown(self):
         self.shutdown_event.set()

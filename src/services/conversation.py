@@ -15,54 +15,11 @@ from ..core.logging import setup_logger
 from .ai import AIService
 from ..prompts.manager import PromptManager
 
-import psutil
-import os
-import gc
-
 logger = setup_logger(__name__)
-
-def get_memory_usage():
-    """Get current memory usage of the process"""
-    process = psutil.Process(os.getpid())
-    return process.memory_info().rss / 1024 / 1024  # Convert to MB
-
-def log_memory_stats():
-    process = psutil.Process()
-    mem = process.memory_info()
-    logger.info(f"[MEMORY DETAIL] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
-    # Log event bus stats
-    logger.info(f"[EVENT BUS] Queue size: {event_bus._event_queue.qsize()}")
-    logger.info(f"[EVENT BUS] Number of handlers: {len(event_bus.listeners)}")
-    # Log object counts
-    all_objects = gc.get_objects()
-    event_count = sum(1 for obj in all_objects if isinstance(obj, Event))
-    logger.info(f"[OBJECTS] Event objects: {event_count}")
-    handler_count = sum(1 for obj in all_objects if callable(obj) and hasattr(obj, '__name__'))
-    logger.info(f"[OBJECTS] Event handlers: {handler_count}")
-    # Log SQLAlchemy stats
-    if hasattr(process, '_session_factory'):
-        logger.info(f"[SQLALCHEMY] Session pool size: {len(process._session_factory.kw['pool'])}")
-    # Log number of objects in memory
-    logger.info(f"[OBJECTS] Total Python objects: {len(all_objects)}")
-    # Log specific object counts
-    from sqlalchemy.orm import Session
-    session_count = sum(1 for obj in all_objects if isinstance(obj, Session))
-    logger.info(f"[OBJECTS] SQLAlchemy Sessions: {session_count}")
 
 class ConversationService:
     _instance = None
     _initialized = False
-    HANDLED_EVENTS = [
-        "conversation.main.create.requested",
-        "conversation.chunk.create.requested", 
-        "conversation.message.send.requested",
-        "conversation.questions.generate.requested",
-        "conversation.questions.list.requested",
-        "conversation.merge.requested",
-        "conversation.chunk.get.requested",
-        "conversation.messages.requested",
-        "conversation.list.requested"
-    ]
 
     def __new__(cls, db: AsyncSession = None):
         if cls._instance is None:
@@ -88,38 +45,18 @@ class ConversationService:
             # Start processor
             self.processor_task = asyncio.create_task(self._process_tasks())
 
-            # Store handlers so we can remove them later
-            self._handlers = []
-            
             # Register event handlers with queue wrapper
-            self._register_handlers()
+            event_bus.on("conversation.main.create.requested", self._queue_task(self.handle_create_main_conversation))
+            event_bus.on("conversation.chunk.create.requested", self._queue_task(self.handle_create_chunk_conversation))
+            event_bus.on("conversation.message.send.requested", self._queue_task(self.handle_send_message))
+            event_bus.on("conversation.questions.generate.requested", self._queue_task(self.handle_generate_questions))
+            event_bus.on("conversation.questions.list.requested", self._queue_task(self.handle_list_questions))
+            event_bus.on("conversation.merge.requested", self._queue_task(self.handle_merge_conversations))
+            event_bus.on("conversation.chunk.get.requested", self._queue_task(self.handle_get_conversations_by_sequence))
+            event_bus.on("conversation.messages.requested", self._queue_task(self.handle_list_messages))
+            event_bus.on("conversation.list.requested", self._queue_task(self.handle_list_conversations))
                 
             self.__class__._initialized = True
-
-    def _register_handlers(self):
-        """Register event handlers."""
-        # First remove any existing handlers for this instance
-        for event_type in self.HANDLED_EVENTS:
-            event_bus.listeners[event_type] = [h for h in event_bus.listeners[event_type] 
-                                             if not hasattr(h, '__self__') or h.__self__ is not self]
-
-        # Now register our handlers
-        handlers = [
-            ("conversation.main.create.requested", self.handle_create_main_conversation),
-            ("conversation.chunk.create.requested", self.handle_create_chunk_conversation),
-            ("conversation.message.send.requested", self.handle_send_message),
-            ("conversation.questions.generate.requested", self.handle_generate_questions),
-            ("conversation.questions.list.requested", self.handle_list_questions),
-            ("conversation.merge.requested", self.handle_merge_conversations),
-            ("conversation.chunk.get.requested", self.handle_get_conversations_by_sequence),
-            ("conversation.messages.requested", self.handle_list_messages),
-            ("conversation.list.requested", self.handle_list_conversations)
-        ]
-        
-        for event_type, handler in handlers:
-            wrapped = self._queue_task(handler)
-            event_bus.on(event_type, wrapped)
-            self._handlers.append((event_type, wrapped))
 
     def _queue_task(self, handler):
         async def wrapper(event):
@@ -130,66 +67,27 @@ class ConversationService:
     async def _process_tasks(self):
         while not self.shutdown_event.is_set():
             try:
-                print(f"[CONV SERVICE] Task queue size before get: {self.task_queue.qsize()}")
                 handler, event = await self.task_queue.get()
-                print(f"[CONV SERVICE] Task queue size after get: {self.task_queue.qsize()}")
                 task = asyncio.create_task(self._run_task(handler, event))
                 self.active_tasks.add(task)
                 task.add_done_callback(self.active_tasks.discard)
-                print(f"[CONV SERVICE] Active tasks count: {len(self.active_tasks)}")
-                self.task_queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Task processor error: {e}")
 
     async def _run_task(self, handler, event):
-        """Run a task with proper session management and cleanup"""
-        db = None
-        session_id = None
-        
-        logger.info("=== MEMORY CHECKPOINT: Before Task Start ===")
-        log_memory_stats()
-        
         try:
             async with self.semaphore:
-                db = self.AsyncSessionLocal()
-                session_id = id(db)
-                logger.info(f"[SESSION] Created session {session_id}")
-                
-                logger.info("=== MEMORY CHECKPOINT: After Session Creation ===")
-                log_memory_stats()
-                
-                try:
-                    await handler(event, db)
-                    await db.commit()
-                    logger.info("=== MEMORY CHECKPOINT: After Handler Execution ===")
-                    log_memory_stats()
-                except Exception as e:
-                    logger.error(f"[SESSION] Error in handler for session {session_id}: {e}")
-                    await db.rollback()
-                    raise
-                finally:
-                    if db:
-                        db.expire_all()  # Explicitly expire all objects
+                async with self.AsyncSessionLocal() as db:
+                    try:
+                        await handler(event, db)
+                    except Exception as e:
+                        logger.error(f"Handler error: {e}")
+                    finally:
                         await db.close()
-                        logger.info("=== MEMORY CHECKPOINT: After Session Close ===")
-                        log_memory_stats()
         except Exception as e:
-            logger.error(f"[SESSION] Task execution error for session {session_id}: {e}")
-            if not isinstance(e, ValueError) or "already emitted" not in str(e):
-                await self._emit_error_event(event, str(e))
-        finally:
-            if db and not db.is_active:
-                db.expire_all()  # One more expire_all() for good measure
-                await db.close()
-            
-            # Force garbage collection and log memory
-            collected = gc.collect()
-            logger.info(f"=== MEMORY CHECKPOINT: Final State ===")
-            log_memory_stats()
-            logger.info(f"[GC] Collected {collected} objects")
-            logger.info(f"[MEMORY] Active tasks: {len(self.active_tasks)}")
+            logger.error(f"Task execution error: {e}")
 
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
         try:
@@ -299,31 +197,16 @@ class ConversationService:
             ))
 
     async def handle_send_message(self, event: Event, db: AsyncSession):
-        session_id = id(db)
-        logger.info(f"[SEND_MESSAGE] Starting message handler with session {session_id}")
-        logger.info(f"[MEMORY] Before message handling - Memory usage: {get_memory_usage():.2f}MB")
-        
+        logger.info("Handle send message")
         document_id = event.document_id
         try:
             conversation_id = event.data["conversation_id"]
             content = event.data["content"]
-            chunk_id = event.data.get("chunk_id")  # Make chunk_id optional
-                    
-            # Get conversation with explicit error handling
-            conversation = await self._get_conversation(conversation_id, db)
-            if not conversation:
-                raise ValueError(f"Conversation {conversation_id} not found")
-
-            # Get chunk with explicit error handling
-            chunk = None
-            if conversation["chunk_id"]:
-                chunk = await self._get_chunk(
-                    document_id=conversation["document_id"], 
-                    chunk_id=conversation["chunk_id"], 
-                    db=db
-                )
-                if not chunk:
-                    raise ValueError(f"Chunk {conversation['chunk_id']} not found")
+            chunk_id = event.data["chunk_id"]
+                        
+            # Get conversation
+            conversation = await self._get_conversation(conversation_id, db)  # Pass db
+            chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=conversation["chunk_id"], db=db) if conversation["chunk_id"] else None  # Pass db
             
             # 1. Store raw user message in DB
             message = await self._create_message(
@@ -334,14 +217,11 @@ class ConversationService:
                 db=db  # Pass db
             )
             await db.commit()
-            await db.refresh(message)  # Ensure message is loaded
             
             # 2. Process the user message based on conversation type
             messages = []
             if conversation["type"] == "highlight":
-                highlight_text = await self._get_highlight_text(conversation["id"], db)
-                if not highlight_text:
-                    raise ValueError("Highlight text not found")
+                highlight_text = await self._get_highlight_text(conversation["id"], db)  # Pass db
                 processed_content = self.prompt_manager.create_highlight_user_prompt(
                     user_message=content
                 )
@@ -350,21 +230,20 @@ class ConversationService:
                 processed_content = self.prompt_manager.create_main_user_prompt(
                     user_message=content
                 )
-                messages = await self._get_messages_with_chunk_switches(conversation, db)
+                messages = await self._get_messages_with_chunk_switches(conversation, db)  # Pass db
 
-            if not messages:
-                raise ValueError("No messages found for conversation")
 
-            messages[-1]["content"] = processed_content
-            
+            if messages:
+                messages[-1]["content"] = processed_content
+            logger.info("Messages: {messages}")
             # 5. Send entire messages array to AI service
             response = await self.ai_service.chat(
                 document_id,
                 conversation_id,
                 messages=messages,
-                connection_id=event.connection_id
+                connection_id=event.connection_id  # Pass the WebSocket connection_id
             )
-                    
+                        
             # Add AI response in a new transaction
             ai_message = await self._create_message(
                 conversation["id"], 
@@ -374,10 +253,6 @@ class ConversationService:
                 db=db  # Pass db
             )
             await db.commit()
-            await db.refresh(ai_message)  # Ensure message is loaded
-            
-            # Expire all objects to free memory
-            db.expire_all()
             
             await event_bus.emit(Event(
                 type="conversation.message.send.completed",
@@ -387,9 +262,17 @@ class ConversationService:
             ))
                 
         except Exception as e:
-            logger.error(f"[SEND_MESSAGE] Error in session {session_id}: {e}")
-            logger.info(f"[MEMORY] After error - Memory usage: {get_memory_usage():.2f}MB")
-            await self._emit_error_event(event, str(e))
+            logger.error(f"Error sending message: {e}")
+            await event_bus.emit(Event(
+                type="conversation.message.send.error",
+                document_id=document_id,
+                connection_id=event.connection_id,
+                data={"error": str(e)}
+            ))
+            try:
+                await db.rollback()
+            except:
+                pass
 
     async def handle_generate_questions(self, event: Event, db: AsyncSession):
         try:
@@ -685,7 +568,10 @@ class ConversationService:
                 type="conversation.messages.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
-                data={"message": message_list, "conversation_id": str(conversation_id)}
+                data={
+                    "conversation_id": conversation_id,
+                    "messages": message_list
+                }
             ))
             
         except Exception as e:
@@ -789,22 +675,17 @@ class ConversationService:
         meta_data: Optional[Dict] = None,
         db: AsyncSession = None
     ) -> Message:
-        logger.info(f"[DB] Creating message for conversation {conversation_id}")
-        try:
-            message = Message(
-                id=str(uuid.uuid4()),
-                conversation_id=conversation_id,
-                content=content,
-                chunk_id=chunk_id,
-                role=role,
-                created_at=datetime.utcnow()
-            )
-            db.add(message)
-            logger.info(f"[DB] Added message to session")
-            return message
-        except Exception as e:
-            logger.error(f"[DB] Error creating message: {e}")
-            raise
+        message = Message(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            chunk_id=chunk_id,
+            meta_data=meta_data
+        )
+        db.add(message)
+        await db.flush()
+        await db.refresh(message)
+        return message
 
     async def get_conversation_messages(
         self, 
@@ -838,13 +719,8 @@ class ConversationService:
         return [q.to_dict() for q in result.scalars().all()]
 
     async def _get_conversation(self, conversation_id: str, db: AsyncSession) -> Dict:
-        logger.info(f"[DB] Getting conversation {conversation_id}")
         conversation = await db.get(Conversation, conversation_id)
-        if conversation:
-            logger.info(f"[DB] Found conversation {conversation_id}")
-            return conversation.to_dict()
-        logger.error(f"[DB] Conversation {conversation_id} not found")
-        return None
+        return conversation.to_dict() if conversation else None
 
     async def _get_previous_questions(self, conversation_id: str, db: AsyncSession) -> List[Dict]:
         result = await db.execute(
@@ -878,7 +754,7 @@ class ConversationService:
         return chunk.to_dict() if chunk else None
 
     async def _get_chunk(self, document_id: str, chunk_id: int, db: AsyncSession) -> Optional[Dict]:
-        logger.info(f"[DB] Getting chunk {chunk_id} for document {document_id}")
+        """Get a chunk by its sequence number within a document"""
         try:
             # Convert chunk_id to integer if it's a string
             sequence = int(chunk_id) if isinstance(chunk_id, str) else chunk_id
@@ -892,11 +768,7 @@ class ConversationService:
                 )
             )
             chunk = result.scalar_one_or_none()
-            if chunk:
-                logger.info(f"[DB] Found chunk {chunk_id}")
-                return chunk.to_dict()
-            logger.error(f"[DB] Chunk {chunk_id} not found")
-            return None
+            return chunk.to_dict() if chunk else None
         except ValueError:
             # Handle case where chunk_id can't be converted to int
             logger.error(f"Invalid chunk_id format: {chunk_id}")
@@ -944,46 +816,3 @@ class ConversationService:
             await db.commit()
         except Exception as e:
             logger.error(f"Error cleaning up demo conversations: {e}")
-
-    async def _emit_error_event(self, original_event: Event, error_message: str):
-        """Helper to emit error events"""
-        logger.info(f"[ERROR] Emitting error event for {original_event.type}: {error_message}")
-        await event_bus.emit(Event(
-            type=f"{original_event.type.replace('.requested', '')}.error",
-            document_id=original_event.document_id,
-            connection_id=original_event.connection_id,
-            data={"error": error_message}
-        ))
-        raise ValueError("Error already emitted")
-
-    def __del__(self):
-        """Clean up resources when instance is destroyed."""
-        try:
-            # Remove all handlers registered by this instance
-            for event_type in self.HANDLED_EVENTS:
-                event_bus.listeners[event_type] = [h for h in event_bus.listeners[event_type] 
-                                                 if not hasattr(h, '__self__') or h.__self__ is not self]
-            # Clean up task queue
-            if hasattr(self, '_task_queue'):
-                self._task_queue = None
-        except:
-            pass  # Ignore errors during cleanup
-
-    async def shutdown(self):
-        """Cleanup when shutting down"""
-        self.shutdown_event.set()
-        
-        # Remove all event handlers
-        for handler in self._handlers:
-            event_bus.remove_listener(handler[0], handler[1])
-        
-        # Clear handlers list
-        self._handlers = []
-        
-        # Cancel processor task
-        if self.processor_task:
-            self.processor_task.cancel()
-            try:
-                await self.processor_task
-            except asyncio.CancelledError:
-                pass

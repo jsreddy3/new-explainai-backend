@@ -9,6 +9,7 @@ pydantic-settings==2.6.1
 sqlalchemy==2.0.27
 aiosqlite==0.20.0
 alembic==1.12.1
+# Add these lines to requirements.txt:
 psycopg[binary]==3.1.18  # Async PostgreSQL driver
 asyncpg==0.29.0
 
@@ -17,7 +18,6 @@ PyPDF2==3.0.1
 
 # AI and ML
 openai==1.55.0
-openai[datalib]
 anthropic==0.18.1
 
 # Authentication and Storage
@@ -36,7 +36,7 @@ PyJWT==2.8.0
 
 # Logging and Monitoring
 loguru==0.7.2
-psutil==5.9.8
+psutil==5.9.6
 
 # Testing
 pytest==7.3.1

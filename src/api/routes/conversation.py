@@ -5,9 +5,6 @@ from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
 import uuid
-import psutil
-import gc
-from loguru import logger
 
 from src.db.session import get_db
 from src.services.conversation import ConversationService
@@ -20,19 +17,6 @@ from src.models.database import Conversation, Document
 from ..routes.auth import get_current_user_or_none, User
 from ...services.auth import AuthService
 from src.core.config import settings
-
-def log_memory_stats(context=""):
-    process = psutil.Process()
-    mem = process.memory_info()
-    logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
-    # Log request stats
-    logger.info(f"[REQUESTS] Process memory info: {mem}")
-    # Log object counts
-    all_objects = gc.get_objects()
-    request_count = sum(1 for obj in all_objects if str(type(obj).__name__) == 'Request')
-    logger.info(f"[OBJECTS] Request objects: {request_count}")
-    response_count = sum(1 for obj in all_objects if str(type(obj).__name__) == 'Response')
-    logger.info(f"[OBJECTS] Response objects: {response_count}")
 
 logger = setup_logger(__name__)
 router = APIRouter()
@@ -79,7 +63,6 @@ class WebSocketHandler:
 
     async def connect(self):
         """Establish WebSocket connection and set up event listeners"""
-        log_memory_stats("Before Connect")
         # Verify document access
         document = await self.document_service.get_document(self.document_id, self.db)
         if not document:
@@ -114,12 +97,10 @@ class WebSocketHandler:
         # Start a background task to process events
         self.task = asyncio.create_task(self.process_events())
         
-        log_memory_stats("After Connect")
         return self.connection_id
 
     async def cleanup(self):
         """Cleanup resources when connection is closed"""
-        log_memory_stats("Before Cleanup")
         if self.task:
             self.task.cancel()
             
@@ -130,11 +111,9 @@ class WebSocketHandler:
             
             # Disconnect from event bus
             await manager.disconnect(self.connection_id, self.document_id, "conversation")
-        log_memory_stats("After Cleanup")
 
     async def process_events(self):
         """Process events received from the WebSocket manager"""
-        log_memory_stats("Before Process Events")
         try:
             while True:
                 event = await manager.get_events(self.connection_id)
@@ -144,11 +123,9 @@ class WebSocketHandler:
                     logger.error(f"Error processing event {event.type}: {e}")
         except asyncio.CancelledError:
             pass
-        log_memory_stats("After Process Events")
 
     async def handle_event(self, event: Event):
         """Handle different types of events"""
-        log_memory_stats("Before Handle Event")
         try:
             # Send the event data to the WebSocket client
             await self.websocket.send_json({
@@ -157,22 +134,18 @@ class WebSocketHandler:
             })
         except Exception as e:
             logger.error(f"Failed to send event to WebSocket: {e}")
-        log_memory_stats("After Handle Event")
 
     async def handle_create_conversation(self, data: Dict):
         """Handle conversation creation request"""
-        log_memory_stats("Before Handle Create Conversation")
         await event_bus.emit(Event(
             type="conversation.main.create.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
             data={}
         ))
-        log_memory_stats("After Handle Create Conversation")
 
     async def handle_create_chunk_conversation(self, data: Dict):
         """Handle chunk conversation creation request"""
-        log_memory_stats("Before Handle Create Chunk Conversation")
         chunk_id = data.get("chunk_id")
         highlight_range = data.get("highlight_range", {})
         highlight_text = data.get("highlight_text")
@@ -194,11 +167,9 @@ class WebSocketHandler:
                 "highlight_text": highlight_text
             }
         ))
-        log_memory_stats("After Handle Create Chunk Conversation")
 
     async def handle_send_message(self, data: Dict):
         """Handle message sending request"""
-        log_memory_stats("Before Handle Send Message")
         conversation_id = data.get("conversation_id")
         content = data.get("content")
         role = data.get("role", "user")
@@ -233,11 +204,9 @@ class WebSocketHandler:
                 "conversation_type": conversation_type
             }
         ))
-        log_memory_stats("After Handle Send Message")
 
     async def handle_generate_questions(self, data: Dict):
         """Handle question generation request"""
-        log_memory_stats("Before Handle Generate Questions")
         conversation_id = data.get("conversation_id")
         count = data.get("count", 3)  # Optional
         conversation_type = data.get("conversation_type")
@@ -264,22 +233,18 @@ class WebSocketHandler:
                 "chunk_id": data.get("chunk_id")  # Optional
             }
         ))
-        log_memory_stats("After Handle Generate Questions")
 
     async def handle_list_conversations(self, data: Dict):
         """Handle conversations list request"""
-        log_memory_stats("Before Handle List Conversations")
         await event_bus.emit(Event(
             type="conversation.list.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
             data={}
         ))
-        log_memory_stats("After Handle List Conversations")
 
     async def handle_list_messages(self, data: Dict):
         """Handle messages list request"""
-        log_memory_stats("Before Handle List Messages")
         conversation_id = data.get("conversation_id")
 
         if not conversation_id:
@@ -294,11 +259,9 @@ class WebSocketHandler:
                 "conversation_id": conversation_id
             }
         ))
-        log_memory_stats("After Handle List Messages")
 
     async def handle_merge_conversations(self, data: Dict):
         """Handle conversation merge request"""
-        log_memory_stats("Before Handle Merge Conversations")
         main_conversation_id = data.get("main_conversation_id")
         highlight_conversation_id = data.get("highlight_conversation_id")
 
@@ -318,11 +281,9 @@ class WebSocketHandler:
                 "highlight_conversation_id": highlight_conversation_id
             }
         ))
-        log_memory_stats("After Handle Merge Conversations")
 
     async def handle_create_main_conversation(self, data: Dict):
         """Handle request to create main conversation"""
-        log_memory_stats("Before Handle Create Main Conversation")
         # document_id is already available in self.document_id
         chunk_id = data.get("chunk_id")  # Optional
         
@@ -334,22 +295,18 @@ class WebSocketHandler:
                 "chunk_id": chunk_id
             }
         ))
-        log_memory_stats("After Handle Create Main Conversation")
 
     async def handle_list_chunks(self, data: Dict):
         """Handle request to list document chunks"""
-        log_memory_stats("Before Handle List Chunks")
         await event_bus.emit(Event(
             type="document.chunk.list.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
             data={}
         ))
-        log_memory_stats("After Handle List Chunks")
 
     async def handle_get_conversations_by_sequence(self, data: Dict):
         """Handle request to get conversations by chunk sequence number"""
-        log_memory_stats("Before Handle Get Conversations By Sequence")
         sequence_number = data.get("sequence_number")
         
         if sequence_number is None:  # explicitly check None since 0 is valid
@@ -364,11 +321,9 @@ class WebSocketHandler:
                 "sequence_number": sequence_number
             }
         ))
-        log_memory_stats("After Handle Get Conversations By Sequence")
 
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message"""
-        log_memory_stats("Before Process Message")
         print("Processing message: ", message)
         msg_type = message.get("type")
         data = message.get("data", {})
@@ -397,7 +352,6 @@ class WebSocketHandler:
             await self.handle_list_messages(data)
         else:
             await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
-        log_memory_stats("After Process Message")
                 
 @router.websocket("/conversations/stream/{document_id}")
 async def conversation_stream(
@@ -421,7 +375,6 @@ async def conversation_stream(
         token (str): JWT token for authentication
         db (AsyncSession): Database session
     """
-    log_memory_stats("Before Conversation Stream")
     try:
         # Get user (might be None for example documents)
         auth_service = AuthService(db)
@@ -438,4 +391,3 @@ async def conversation_stream(
         logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
         await handler.cleanup()
-    log_memory_stats("After Conversation Stream")

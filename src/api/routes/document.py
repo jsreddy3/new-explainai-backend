@@ -5,9 +5,6 @@ from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
 import uuid
-import psutil
-import gc
-from loguru import logger
 
 from src.db.session import get_db
 from src.services.document import DocumentService
@@ -24,19 +21,6 @@ from ...core.config import settings
 logger = setup_logger(__name__)
 pdf_service = PDFService()
 router = APIRouter()
-
-def log_memory_stats(context=""):
-    process = psutil.Process()
-    mem = process.memory_info()
-    logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
-    # Log request stats
-    logger.info(f"[REQUESTS] Process memory info: {mem}")
-    # Log object counts
-    all_objects = gc.get_objects()
-    request_count = sum(1 for obj in all_objects if str(type(obj).__name__) == 'Request')
-    logger.info(f"[OBJECTS] Request objects: {request_count}")
-    response_count = sum(1 for obj in all_objects if str(type(obj).__name__) == 'Response')
-    logger.info(f"[OBJECTS] Response objects: {response_count}")
 
 class WebSocketHandler:
     def __init__(self, websocket: WebSocket, document_id: str, user: Optional[User], db: AsyncSession):
@@ -68,48 +52,41 @@ class WebSocketHandler:
 
     async def connect(self):
         """Establish WebSocket connection and set up event listeners"""
-        log_memory_stats("Before Document Stream Connect")
-        try:
-            # Verify document access
-            document = await self.document_service.get_document(self.document_id, self.db)
-            if not document:
-                await self.websocket.close(code=4003)  # Document doesn't exist
+        # Verify document access
+        document = await self.document_service.get_document(self.document_id, self.db)
+        if not document:
+            await self.websocket.close(code=4003)  # Document doesn't exist
+            return None
+            
+        # Check if this is an example document
+        if self.document_id in settings.EXAMPLE_DOCUMENT_IDS:
+            # Allow access to example documents
+            pass
+        else:
+            # For non-example documents, require authenticated user who owns the document
+            if not self.user or document["owner_id"] != str(self.user.id):
+                await self.websocket.close(code=4003)  # Not authorized
                 return None
-                
-            # Check if this is an example document
-            if self.document_id in settings.EXAMPLE_DOCUMENT_IDS:
-                # Allow access to example documents
-                pass
-            else:
-                # For non-example documents, require authenticated user who owns the document
-                if not self.user or document["owner_id"] != str(self.user.id):
-                    await self.websocket.close(code=4003)  # Not authorized
-                    return None
-            
-            # Generate a unique connection ID
-            self.connection_id = str(uuid.uuid4())
-            
-            # Register with the WebSocket manager, which now handles event queuing
-            await manager.connect(
-                connection_id=self.connection_id,
-                document_id=self.document_id,
-                scope="document",
-                websocket=self.websocket
-            )
-            
-            # Register which event types this connection cares about
-            for event_type in self.event_types:
-                await manager.register_listener(self.connection_id, event_type)
-            
-            # Start a background task to process events
-            self.task = asyncio.create_task(self.process_events())
-            
-            log_memory_stats("After Document Stream Setup")
-            return self.connection_id
-
-        except Exception as e:
-            logger.error(f"Error in document stream connect: {e}")
-            raise
+        
+        # Generate a unique connection ID
+        self.connection_id = str(uuid.uuid4())
+        
+        # Register with the WebSocket manager, which now handles event queuing
+        await manager.connect(
+            connection_id=self.connection_id,
+            document_id=self.document_id,
+            scope="document",
+            websocket=self.websocket
+        )
+        
+        # Register which event types this connection cares about
+        for event_type in self.event_types:
+            await manager.register_listener(self.connection_id, event_type)
+        
+        # Start a background task to process events
+        self.task = asyncio.create_task(self.process_events())
+        
+        return self.connection_id
 
     async def process_events(self):
         """Process events received from the WebSocket manager"""
@@ -185,44 +162,36 @@ class WebSocketHandler:
 
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message"""
-        log_memory_stats("Before Process Document Message")
-        try:
-            msg_type = message.get("type")
-            data = message.get("data", {})
-            
-            logger.info(f"[WS] Received message from client: type={msg_type}")
-            logger.debug(f"[WS] Message data: {data}")
+        msg_type = message.get("type")
+        data = message.get("data", {})
+        
+        logger.info(f"[WS] Received message from client: type={msg_type}")
+        logger.debug(f"[WS] Message data: {data}")
 
-            if msg_type == "document.chunk.list":
-                await self.handle_list_chunks(data)
-            elif msg_type == "document.metadata":
-                logger.info("Handling document metadata request")
-                await self.handle_get_metadata(data)
-            elif msg_type == "document.navigate":
-                await self.handle_navigate_chunks(data)
-            elif msg_type == "document.process":
-                await self.handle_process_document(data)
-            else:
-                logger.warning(f"[WS] Unknown message type: {msg_type}")
-                await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
-        finally:
-            log_memory_stats("After Process Document Message")
+        if msg_type == "document.chunk.list":
+            await self.handle_list_chunks(data)
+        elif msg_type == "document.metadata":
+            logger.info("Handling document metadata request")
+            await self.handle_get_metadata(data)
+        elif msg_type == "document.navigate":
+            await self.handle_navigate_chunks(data)
+        elif msg_type == "document.process":
+            await self.handle_process_document(data)
+        else:
+            logger.warning(f"[WS] Unknown message type: {msg_type}")
+            await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
 
     async def cleanup(self):
         """Cleanup resources when connection is closed"""
-        log_memory_stats("Before Document Stream Cleanup")
-        try:
-            if self.task and not self.task.done():
-                self.task.cancel()
-                try:
-                    await self.task
-                except asyncio.CancelledError:
-                    pass
-            
-            if self.connection_id:
-                await manager.disconnect(self.connection_id, self.document_id, "document")
-        finally:
-            log_memory_stats("After Document Stream Cleanup")
+        if self.task and not self.task.done():
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
+        
+        if self.connection_id:
+            await manager.disconnect(self.connection_id, self.document_id, "document")
 
 @router.websocket("/documents/stream/{document_id}")
 async def document_stream(
@@ -232,7 +201,6 @@ async def document_stream(
     db: AsyncSession = Depends(get_db)
 ):
     """Stream document events via WebSocket"""
-    log_memory_stats("Before Upload Document")
     try:
         # Get user (might be None for example documents)
         auth_service = AuthService(db)
@@ -248,7 +216,6 @@ async def document_stream(
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
-        log_memory_stats("After Upload Complete")
         if 'handler' in locals():
             await handler.cleanup()
 
@@ -257,24 +224,20 @@ async def list_example_documents(
     db: AsyncSession = Depends(get_db)
 ):
     """List all example documents. No authentication required."""
-    log_memory_stats("Before Get Chunks")
-    try:
-        result = await db.execute(
-            select(Document).where(Document.id.in_(settings.EXAMPLE_DOCUMENT_IDS))
-        )
-        example_docs = result.scalars().all()
-        log_memory_stats("After Get Chunks")
-        return [
-            {
-                "id": str(doc.id),
-                "title": doc.title,
-                "created_at": doc.created_at.isoformat()
-            }
-            for doc in example_docs
-        ]
-    except Exception as e:
-        logger.error(f"Error getting chunks: {e}")
-        raise
+    print(settings.EXAMPLE_DOCUMENT_IDS)
+    result = await db.execute(
+        select(Document).where(Document.id.in_(settings.EXAMPLE_DOCUMENT_IDS))
+    )
+    example_docs = result.scalars().all()
+    print(example_docs)
+    return [
+        {
+            "id": str(doc.id),
+            "title": doc.title,
+            "created_at": doc.created_at.isoformat()
+        }
+        for doc in example_docs
+    ]
 
 @router.post("/documents/upload")
 async def upload_document(
@@ -306,12 +269,8 @@ async def upload_document(
     Raises:
         HTTPException: If document processing fails
     """
-    log_memory_stats("Before Upload Document")
     try:
         # Process the PDF
-        contents = await file.read()
-        log_memory_stats("After File Read")
-        
         result = await pdf_service.process_pdf(file)
         if not result.success:
             logger.error(f"PDF processing failed: {result.text}")
@@ -367,7 +326,6 @@ async def upload_document(
             "next": str(chunks[1].id) if len(chunks) > 1 else None
         }
 
-        log_memory_stats("After Document Process")
         return {
             "document_id": str(document.id),
             "current_chunk": {
@@ -382,5 +340,4 @@ async def upload_document(
         logger.error(f"Document upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        log_memory_stats("After Upload Complete")
         await db.commit()

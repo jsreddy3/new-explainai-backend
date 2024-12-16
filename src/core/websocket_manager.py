@@ -17,12 +17,11 @@ def log_memory_stats(context=""):
     mem = process.memory_info()
     logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
     # Log connection stats
-    logger.info(f"[WS CONNECTIONS] Active connections: {len(manager.connections) if manager else 0}")
-    # Log queue sizes for each connection
-    if manager:
-        for conn_id, conn in manager.event_queues.items():
-            if hasattr(conn, '_queue'):
-                logger.info(f"[WS QUEUE] Connection {conn_id}: size={conn.qsize()}")
+    total_connections = sum(len(conns) for scope_conns in manager.connections.values() for conns in scope_conns.values())
+    logger.info(f"[WS CONNECTIONS] Active connections: {total_connections}")
+    # Log queue sizes
+    for conn_id, queue in manager.event_queues.items():
+        logger.info(f"[WS QUEUE] Connection {conn_id}: size={queue.qsize()}")
     # Log object counts
     all_objects = gc.get_objects()
     websocket_count = sum(1 for obj in all_objects if str(type(obj).__name__) == 'WebSocket')

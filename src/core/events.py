@@ -33,9 +33,8 @@ def log_memory_stats(context=""):
     mem = process.memory_info()
     logger.info(f"[MEMORY DETAIL {context}] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
     # Log event bus stats
-    if EventBus._instance:
-        logger.info(f"[EVENT BUS] Queue size: {EventBus._instance._event_queue.qsize()}")
-        logger.info(f"[EVENT BUS] Number of handlers: {len(EventBus._instance.listeners)}")
+    logger.info(f"[EVENT BUS] Queue size: {event_bus._event_queue.qsize()}")
+    logger.info(f"[EVENT BUS] Number of handlers: {len(event_bus.listeners)}")
     # Log object counts
     all_objects = gc.get_objects()
     event_count = sum(1 for obj in all_objects if isinstance(obj, Event))

@@ -74,18 +74,39 @@ class ConversationService:
             # Start processor
             self.processor_task = asyncio.create_task(self._process_tasks())
 
+            # Store handlers so we can remove them later
+            self._handlers = []
+            
             # Register event handlers with queue wrapper
-            event_bus.on("conversation.main.create.requested", self._queue_task(self.handle_create_main_conversation))
-            event_bus.on("conversation.chunk.create.requested", self._queue_task(self.handle_create_chunk_conversation))
-            event_bus.on("conversation.message.send.requested", self._queue_task(self.handle_send_message))
-            event_bus.on("conversation.questions.generate.requested", self._queue_task(self.handle_generate_questions))
-            event_bus.on("conversation.questions.list.requested", self._queue_task(self.handle_list_questions))
-            event_bus.on("conversation.merge.requested", self._queue_task(self.handle_merge_conversations))
-            event_bus.on("conversation.chunk.get.requested", self._queue_task(self.handle_get_conversations_by_sequence))
-            event_bus.on("conversation.messages.requested", self._queue_task(self.handle_list_messages))
-            event_bus.on("conversation.list.requested", self._queue_task(self.handle_list_conversations))
+            self._register_handlers()
                 
             self.__class__._initialized = True
+
+    def _register_handlers(self):
+        # First remove any existing handlers
+        for handler in getattr(self, '_handlers', []):
+            event_bus.remove_listener(handler[0], handler[1])
+        
+        # Clear handlers list
+        self._handlers = []
+        
+        # Register new handlers
+        handlers = [
+            ("conversation.main.create.requested", self.handle_create_main_conversation),
+            ("conversation.chunk.create.requested", self.handle_create_chunk_conversation),
+            ("conversation.message.send.requested", self.handle_send_message),
+            ("conversation.questions.generate.requested", self.handle_generate_questions),
+            ("conversation.questions.list.requested", self.handle_list_questions),
+            ("conversation.merge.requested", self.handle_merge_conversations),
+            ("conversation.chunk.get.requested", self.handle_get_conversations_by_sequence),
+            ("conversation.messages.requested", self.handle_list_messages),
+            ("conversation.list.requested", self.handle_list_conversations)
+        ]
+        
+        for event_type, handler in handlers:
+            wrapped = self._queue_task(handler)
+            event_bus.on(event_type, wrapped)
+            self._handlers.append((event_type, wrapped))
 
     def _queue_task(self, handler):
         async def wrapper(event):
@@ -112,7 +133,7 @@ class ConversationService:
     async def _run_task(self, handler, event):
         """Run a task with proper session management and cleanup"""
         db = None
-        session_id = id(db) if db else None
+        session_id = None
         
         logger.info("=== MEMORY CHECKPOINT: Before Task Start ===")
         log_memory_stats()
@@ -128,6 +149,7 @@ class ConversationService:
                 
                 try:
                     await handler(event, db)
+                    await db.commit()
                     logger.info("=== MEMORY CHECKPOINT: After Handler Execution ===")
                     log_memory_stats()
                 except Exception as e:
@@ -136,6 +158,7 @@ class ConversationService:
                     raise
                 finally:
                     if db:
+                        db.expire_all()  # Explicitly expire all objects
                         await db.close()
                         logger.info("=== MEMORY CHECKPOINT: After Session Close ===")
                         log_memory_stats()
@@ -145,6 +168,7 @@ class ConversationService:
                 await self._emit_error_event(event, str(e))
         finally:
             if db and not db.is_active:
+                db.expire_all()  # One more expire_all() for good measure
                 await db.close()
             
             # Force garbage collection and log memory
@@ -153,7 +177,6 @@ class ConversationService:
             log_memory_stats()
             logger.info(f"[GC] Collected {collected} objects")
             logger.info(f"[MEMORY] Active tasks: {len(self.active_tasks)}")
-            logger.info(f"[MEMORY] After task - Memory usage: {get_memory_usage():.2f}MB")
 
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
         try:
@@ -295,7 +318,7 @@ class ConversationService:
                 content, 
                 chunk_id if chunk_id else conversation["chunk_id"],
                 "user",
-                db=db
+                db=db  # Pass db
             )
             await db.commit()
             await db.refresh(message)  # Ensure message is loaded
@@ -335,7 +358,7 @@ class ConversationService:
                 response, 
                 chunk_id if chunk_id else conversation["chunk_id"],
                 "assistant",
-                db=db
+                db=db  # Pass db
             )
             await db.commit()
             await db.refresh(ai_message)  # Ensure message is loaded
@@ -649,10 +672,7 @@ class ConversationService:
                 type="conversation.messages.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
-                data={
-                    "conversation_id": conversation_id,
-                    "messages": message_list
-                }
+                data={"message": message_list, "conversation_id": str(conversation_id)}
             ))
             
         except Exception as e:
@@ -922,3 +942,22 @@ class ConversationService:
             data={"error": error_message}
         ))
         raise ValueError("Error already emitted")
+
+    async def shutdown(self):
+        """Cleanup when shutting down"""
+        self.shutdown_event.set()
+        
+        # Remove all event handlers
+        for handler in self._handlers:
+            event_bus.remove_listener(handler[0], handler[1])
+        
+        # Clear handlers list
+        self._handlers = []
+        
+        # Cancel processor task
+        if self.processor_task:
+            self.processor_task.cancel()
+            try:
+                await self.processor_task
+            except asyncio.CancelledError:
+                pass

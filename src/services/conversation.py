@@ -15,7 +15,16 @@ from ..core.logging import setup_logger
 from .ai import AIService
 from ..prompts.manager import PromptManager
 
+import psutil
+import os
+import gc
+
 logger = setup_logger(__name__)
+
+def get_memory_usage():
+    """Get current memory usage of the process"""
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024 / 1024  # Convert to MB
 
 class ConversationService:
     _instance = None
@@ -81,17 +90,43 @@ class ConversationService:
                 logger.error(f"Task processor error: {e}")
 
     async def _run_task(self, handler, event):
+        """Run a task with proper session management and cleanup"""
+        db = None
+        session_id = id(db) if db else None
+        logger.info(f"[MEMORY] Before task - Memory usage: {get_memory_usage():.2f}MB")
+        logger.info(f"[SESSION] Creating new session {session_id} for event {event.type}")
+        
         try:
             async with self.semaphore:
-                async with self.AsyncSessionLocal() as db:
-                    try:
-                        await handler(event, db)
-                    except Exception as e:
-                        logger.error(f"Handler error: {e}")
-                    finally:
+                db = self.AsyncSessionLocal()
+                session_id = id(db)
+                logger.info(f"[SESSION] Created session {session_id}")
+                try:
+                    await handler(event, db)
+                except Exception as e:
+                    logger.error(f"[SESSION] Error in handler for session {session_id}: {e}")
+                    await db.rollback()
+                    logger.info(f"[SESSION] Rolled back session {session_id}")
+                    raise
+                finally:
+                    if db:
+                        logger.info(f"[SESSION] Closing session {session_id}")
                         await db.close()
+                        logger.info(f"[SESSION] Closed session {session_id}")
         except Exception as e:
-            logger.error(f"Task execution error: {e}")
+            logger.error(f"[SESSION] Task execution error for session {session_id}: {e}")
+            if not isinstance(e, ValueError) or "already emitted" not in str(e):
+                await self._emit_error_event(event, str(e))
+        finally:
+            if db and not db.is_active:
+                logger.info(f"[SESSION] Final cleanup of session {session_id}")
+                await db.close()
+                logger.info(f"[SESSION] Final cleanup complete for session {session_id}")
+        
+            # Force garbage collection and log memory
+            gc.collect()
+            logger.info(f"[MEMORY] After task - Memory usage: {get_memory_usage():.2f}MB")
+            logger.info(f"[MEMORY] Active tasks: {len(self.active_tasks)}")
 
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
         try:
@@ -201,16 +236,31 @@ class ConversationService:
             ))
 
     async def handle_send_message(self, event: Event, db: AsyncSession):
-        logger.info("Handle send message")
+        session_id = id(db)
+        logger.info(f"[SEND_MESSAGE] Starting message handler with session {session_id}")
+        logger.info(f"[MEMORY] Before message handling - Memory usage: {get_memory_usage():.2f}MB")
+        
         document_id = event.document_id
         try:
             conversation_id = event.data["conversation_id"]
             content = event.data["content"]
-            chunk_id = event.data["chunk_id"]
-                        
-            # Get conversation
-            conversation = await self._get_conversation(conversation_id, db)  # Pass db
-            chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=conversation["chunk_id"], db=db) if conversation["chunk_id"] else None  # Pass db
+            chunk_id = event.data.get("chunk_id")  # Make chunk_id optional
+                    
+            # Get conversation with explicit error handling
+            conversation = await self._get_conversation(conversation_id, db)
+            if not conversation:
+                raise ValueError(f"Conversation {conversation_id} not found")
+
+            # Get chunk with explicit error handling
+            chunk = None
+            if conversation["chunk_id"]:
+                chunk = await self._get_chunk(
+                    document_id=conversation["document_id"], 
+                    chunk_id=conversation["chunk_id"], 
+                    db=db
+                )
+                if not chunk:
+                    raise ValueError(f"Chunk {conversation['chunk_id']} not found")
             
             # 1. Store raw user message in DB
             message = await self._create_message(
@@ -218,14 +268,17 @@ class ConversationService:
                 content, 
                 chunk_id if chunk_id else conversation["chunk_id"],
                 "user",
-                db=db  # Pass db
+                db=db
             )
             await db.commit()
+            await db.refresh(message)  # Ensure message is loaded
             
             # 2. Process the user message based on conversation type
             messages = []
             if conversation["type"] == "highlight":
-                highlight_text = await self._get_highlight_text(conversation["id"], db)  # Pass db
+                highlight_text = await self._get_highlight_text(conversation["id"], db)
+                if not highlight_text:
+                    raise ValueError("Highlight text not found")
                 processed_content = self.prompt_manager.create_highlight_user_prompt(
                     user_message=content
                 )
@@ -234,29 +287,34 @@ class ConversationService:
                 processed_content = self.prompt_manager.create_main_user_prompt(
                     user_message=content
                 )
-                messages = await self._get_messages_with_chunk_switches(conversation, db)  # Pass db
+                messages = await self._get_messages_with_chunk_switches(conversation, db)
 
+            if not messages:
+                raise ValueError("No messages found for conversation")
 
-            if messages:
-                messages[-1]["content"] = processed_content
-            logger.info("Messages: {messages}")
+            messages[-1]["content"] = processed_content
+            
             # 5. Send entire messages array to AI service
             response = await self.ai_service.chat(
                 document_id,
                 conversation_id,
                 messages=messages,
-                connection_id=event.connection_id  # Pass the WebSocket connection_id
+                connection_id=event.connection_id
             )
-                        
+                    
             # Add AI response in a new transaction
             ai_message = await self._create_message(
                 conversation["id"], 
                 response, 
                 chunk_id if chunk_id else conversation["chunk_id"],
                 "assistant",
-                db=db  # Pass db
+                db=db
             )
             await db.commit()
+            await db.refresh(ai_message)  # Ensure message is loaded
+            
+            # Expire all objects to free memory
+            db.expire_all()
             
             await event_bus.emit(Event(
                 type="conversation.message.send.completed",
@@ -266,17 +324,9 @@ class ConversationService:
             ))
                 
         except Exception as e:
-            logger.error(f"Error sending message: {e}")
-            await event_bus.emit(Event(
-                type="conversation.message.send.error",
-                document_id=document_id,
-                connection_id=event.connection_id,
-                data={"error": str(e)}
-            ))
-            try:
-                await db.rollback()
-            except:
-                pass
+            logger.error(f"[SEND_MESSAGE] Error in session {session_id}: {e}")
+            logger.info(f"[MEMORY] After error - Memory usage: {get_memory_usage():.2f}MB")
+            await self._emit_error_event(event, str(e))
 
     async def handle_generate_questions(self, event: Event, db: AsyncSession):
         try:
@@ -679,17 +729,22 @@ class ConversationService:
         meta_data: Optional[Dict] = None,
         db: AsyncSession = None
     ) -> Message:
-        message = Message(
-            conversation_id=conversation_id,
-            role=role,
-            content=content,
-            chunk_id=chunk_id,
-            meta_data=meta_data
-        )
-        db.add(message)
-        await db.flush()
-        await db.refresh(message)
-        return message
+        logger.info(f"[DB] Creating message for conversation {conversation_id}")
+        try:
+            message = Message(
+                id=str(uuid.uuid4()),
+                conversation_id=conversation_id,
+                content=content,
+                chunk_id=chunk_id,
+                role=role,
+                created_at=datetime.utcnow()
+            )
+            db.add(message)
+            logger.info(f"[DB] Added message to session")
+            return message
+        except Exception as e:
+            logger.error(f"[DB] Error creating message: {e}")
+            raise
 
     async def get_conversation_messages(
         self, 
@@ -723,8 +778,13 @@ class ConversationService:
         return [q.to_dict() for q in result.scalars().all()]
 
     async def _get_conversation(self, conversation_id: str, db: AsyncSession) -> Dict:
+        logger.info(f"[DB] Getting conversation {conversation_id}")
         conversation = await db.get(Conversation, conversation_id)
-        return conversation.to_dict() if conversation else None
+        if conversation:
+            logger.info(f"[DB] Found conversation {conversation_id}")
+            return conversation.to_dict()
+        logger.error(f"[DB] Conversation {conversation_id} not found")
+        return None
 
     async def _get_previous_questions(self, conversation_id: str, db: AsyncSession) -> List[Dict]:
         result = await db.execute(
@@ -758,7 +818,7 @@ class ConversationService:
         return chunk.to_dict() if chunk else None
 
     async def _get_chunk(self, document_id: str, chunk_id: int, db: AsyncSession) -> Optional[Dict]:
-        """Get a chunk by its sequence number within a document"""
+        logger.info(f"[DB] Getting chunk {chunk_id} for document {document_id}")
         try:
             # Convert chunk_id to integer if it's a string
             sequence = int(chunk_id) if isinstance(chunk_id, str) else chunk_id
@@ -772,7 +832,11 @@ class ConversationService:
                 )
             )
             chunk = result.scalar_one_or_none()
-            return chunk.to_dict() if chunk else None
+            if chunk:
+                logger.info(f"[DB] Found chunk {chunk_id}")
+                return chunk.to_dict()
+            logger.error(f"[DB] Chunk {chunk_id} not found")
+            return None
         except ValueError:
             # Handle case where chunk_id can't be converted to int
             logger.error(f"Invalid chunk_id format: {chunk_id}")
@@ -820,3 +884,14 @@ class ConversationService:
             await db.commit()
         except Exception as e:
             logger.error(f"Error cleaning up demo conversations: {e}")
+
+    async def _emit_error_event(self, original_event: Event, error_message: str):
+        """Helper to emit error events"""
+        logger.info(f"[ERROR] Emitting error event for {original_event.type}: {error_message}")
+        await event_bus.emit(Event(
+            type=f"{original_event.type.replace('.requested', '')}.error",
+            document_id=original_event.document_id,
+            connection_id=original_event.connection_id,
+            data={"error": error_message}
+        ))
+        raise ValueError("Error already emitted")

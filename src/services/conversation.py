@@ -30,25 +30,39 @@ def log_memory_stats():
     process = psutil.Process()
     mem = process.memory_info()
     logger.info(f"[MEMORY DETAIL] RSS: {mem.rss/1024/1024:.2f}MB, VMS: {mem.vms/1024/1024:.2f}MB")
+    # Log event bus stats
+    logger.info(f"[EVENT BUS] Queue size: {event_bus._event_queue.qsize()}")
+    logger.info(f"[EVENT BUS] Number of handlers: {len(event_bus.listeners)}")
+    # Log object counts
+    all_objects = gc.get_objects()
+    event_count = sum(1 for obj in all_objects if isinstance(obj, Event))
+    logger.info(f"[OBJECTS] Event objects: {event_count}")
+    handler_count = sum(1 for obj in all_objects if callable(obj) and hasattr(obj, '__name__'))
+    logger.info(f"[OBJECTS] Event handlers: {handler_count}")
     # Log SQLAlchemy stats
     if hasattr(process, '_session_factory'):
         logger.info(f"[SQLALCHEMY] Session pool size: {len(process._session_factory.kw['pool'])}")
     # Log number of objects in memory
-    all_objects = gc.get_objects()
     logger.info(f"[OBJECTS] Total Python objects: {len(all_objects)}")
     # Log specific object counts
     from sqlalchemy.orm import Session
     session_count = sum(1 for obj in all_objects if isinstance(obj, Session))
     logger.info(f"[OBJECTS] SQLAlchemy Sessions: {session_count}")
-    # Log event queues
-    from ..core.events import EventBus
-    event_bus = EventBus._instance
-    if event_bus:
-        logger.info(f"[QUEUES] EventBus queue size: {event_bus._queue.qsize() if hasattr(event_bus, '_queue') else 'N/A'}")
 
 class ConversationService:
     _instance = None
     _initialized = False
+    HANDLED_EVENTS = [
+        "conversation.main.create.requested",
+        "conversation.chunk.create.requested", 
+        "conversation.message.send.requested",
+        "conversation.questions.generate.requested",
+        "conversation.questions.list.requested",
+        "conversation.merge.requested",
+        "conversation.chunk.get.requested",
+        "conversation.messages.requested",
+        "conversation.list.requested"
+    ]
 
     def __new__(cls, db: AsyncSession = None):
         if cls._instance is None:
@@ -83,14 +97,13 @@ class ConversationService:
             self.__class__._initialized = True
 
     def _register_handlers(self):
-        # First remove any existing handlers
-        for handler in getattr(self, '_handlers', []):
-            event_bus.remove_listener(handler[0], handler[1])
-        
-        # Clear handlers list
-        self._handlers = []
-        
-        # Register new handlers
+        """Register event handlers."""
+        # First remove any existing handlers for this instance
+        for event_type in self.HANDLED_EVENTS:
+            event_bus.listeners[event_type] = [h for h in event_bus.listeners[event_type] 
+                                             if not hasattr(h, '__self__') or h.__self__ is not self]
+
+        # Now register our handlers
         handlers = [
             ("conversation.main.create.requested", self.handle_create_main_conversation),
             ("conversation.chunk.create.requested", self.handle_create_chunk_conversation),
@@ -942,6 +955,19 @@ class ConversationService:
             data={"error": error_message}
         ))
         raise ValueError("Error already emitted")
+
+    def __del__(self):
+        """Clean up resources when instance is destroyed."""
+        try:
+            # Remove all handlers registered by this instance
+            for event_type in self.HANDLED_EVENTS:
+                event_bus.listeners[event_type] = [h for h in event_bus.listeners[event_type] 
+                                                 if not hasattr(h, '__self__') or h.__self__ is not self]
+            # Clean up task queue
+            if hasattr(self, '_task_queue'):
+                self._task_queue = None
+        except:
+            pass  # Ignore errors during cleanup
 
     async def shutdown(self):
         """Cleanup when shutting down"""

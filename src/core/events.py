@@ -112,15 +112,39 @@ class EventBus:
         print(f"[EVENT BUS] Queue size after put: {self._event_queue.qsize()}")
         log_memory_stats("After Event Emit")
     
-    def remove_listener(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
-        """Remove a listener for an event type"""
+    def remove_listener(self, event_type: str, callback: Optional[Callable[[Event], Awaitable[None]]] = None):
+        """Remove a listener for an event type.
+        
+        Args:
+            event_type: The event type to remove listeners for
+            callback: Optional specific callback to remove. If None, removes all listeners for the event type.
+        """
         if event_type in self.listeners:
-            self.listeners[event_type].remove(callback)
-            if not self.listeners[event_type]:
+            if callback is None:
+                # Remove all listeners for this event type
                 del self.listeners[event_type]
-    
+            else:
+                # Remove specific callback
+                try:
+                    self.listeners[event_type].remove(callback)
+                except ValueError:
+                    # Callback wasn't in the list
+                    pass
+                
+                # Clean up empty listener lists
+                if not self.listeners[event_type]:
+                    del self.listeners[event_type]
+
+    def remove_all_listeners(self):
+        """Remove all event listeners."""
+        self.listeners.clear()
+
     async def shutdown(self):
         """Shutdown the event bus"""
+        # First remove all listeners
+        self.remove_all_listeners()
+        
+        # Then cancel the processing task
         if self._task:
             self._task.cancel()
             try:

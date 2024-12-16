@@ -17,6 +17,7 @@ PyPDF2==3.0.1
 
 # AI and ML
 openai==1.55.0
+openai[datalib]
 anthropic==0.18.1
 
 # Authentication and Storage

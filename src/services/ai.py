@@ -45,8 +45,21 @@ class AIService:
             log_memory("AIService", "after_litellm_before_first_chunk")
             
             # Inspect completion object
-            logger.debug(f"Completion object type: {type(completion)}")
-            logger.debug(f"Completion object dir: {dir(completion)}")
+            logger.info(f"Completion object type: {type(completion)}")
+            try:
+                # Try to safely inspect completion object
+                completion_dict = {}
+                for attr in dir(completion):
+                    if not attr.startswith('_'):  # Skip private attributes
+                        try:
+                            value = getattr(completion, attr)
+                            if not callable(value):  # Skip methods
+                                completion_dict[attr] = str(value)
+                        except Exception as e:
+                            completion_dict[attr] = f"<Error getting value: {str(e)}>"
+                logger.info(f"Completion attributes: {completion_dict}")
+            except Exception as e:
+                logger.error(f"Error inspecting completion: {str(e)}")
             
             log_memory("AIService", "after_completion_before_streaming")
             response_buffer = []

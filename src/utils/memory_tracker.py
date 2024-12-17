@@ -6,6 +6,7 @@ from typing import Callable, Any
 import asyncio
 from ..core.logging import setup_logger
 import gc
+from collections import Counter
 
 logger = setup_logger(__name__)
 process = psutil.Process(os.getpid())
@@ -25,9 +26,24 @@ def log_gc_stats(component: str, operation: str):
     gc.collect()  # Force collection
     counts = gc.get_count()
     logger.info(f"[{component}][{operation}] GC generations (0,1,2): {counts}")
-    for generation in range(3):
-        count = len(gc.get_objects(generation))
-        logger.info(f"[{component}][{operation}] Generation {generation} object count: {count}")
+    
+    # Get type distribution of objects in generation 2
+    gen2_objects = gc.get_objects(2)
+    type_counts = Counter(type(obj).__name__ for obj in gen2_objects)
+    most_common = type_counts.most_common(10)
+    
+    logger.info(f"[{component}][{operation}] Top 10 types in generation 2:")
+    for type_name, count in most_common:
+        logger.info(f"[{component}][{operation}] {type_name}: {count}")
+    
+    # Log referrers to the most common type
+    if most_common:
+        most_common_type = most_common[0][0]
+        sample_obj = next((obj for obj in gen2_objects if type(obj).__name__ == most_common_type), None)
+        if sample_obj:
+            logger.info(f"[{component}][{operation}] Sample referrers to {most_common_type}:")
+            for ref in gc.get_referrers(sample_obj)[:5]:  # Look at first 5 referrers
+                logger.info(f"[{component}][{operation}] Referrer: {type(ref).__name__}")
 
 def track_memory(component: str):
     """

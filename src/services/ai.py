@@ -2,6 +2,7 @@
 
 from typing import Dict, List, Optional, AsyncGenerator, Tuple
 import logging
+import gc
 from litellm import acompletion
 from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
@@ -92,12 +93,23 @@ class AIService:
                     logger.debug(f"Response buffer size: {buffer_size} chars, Chunk count: {chunk_count}")
             
             response = "".join(response_buffer)
-            log_memory("AIService", "after_streaming")
-            logger.info(f"Final response size: {len(response)} chars, Total chunks: {chunk_count}")
-            
-            # Clear buffers explicitly
             response_buffer.clear()
             del response_buffer
+            
+            # Force cleanup of streaming objects
+            if hasattr(completion, 'completion_stream'):
+                try:
+                    await completion.completion_stream.aclose()
+                except:
+                    pass
+            
+            # Clear all references
+            if hasattr(completion, '__dict__'):
+                completion.__dict__.clear()
+            del completion
+            
+            log_memory("AIService", "after_streaming")
+            logger.info(f"Final response size: {len(response)} chars, Total chunks: {chunk_count}")
             
             # Emit completion event
             await event_bus.emit(Event(
@@ -106,6 +118,9 @@ class AIService:
                 connection_id=connection_id,
                 data={"response": response}
             ))
+            
+            # Force GC collection
+            gc.collect()
             
             log_memory("AIService", "after_completion_event")
             return response

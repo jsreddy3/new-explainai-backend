@@ -6,16 +6,19 @@ from litellm import acompletion
 from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
 from src.utils.message_logger import MessageLogger
+from src.utils.memory_tracker import track_memory
 
 logger = setup_logger(__name__)
 
 class AIService:
     MODEL = "gpt-4o"
     
+    @track_memory("AIService")
     def __init__(self):
         logger.info(f"Initialized AIService with model: {self.MODEL}")
         self.message_logger = MessageLogger()
         
+    @track_memory("AIService")
     async def chat(
         self,
         document_id: str,
@@ -58,18 +61,18 @@ class AIService:
                 response += content
             
             # Log exchange with response
-            await self.message_logger.log_exchange(
-                document_id=document_id,
-                conversation_id=conversation_id,
-                messages=messages,
-                response=response,
-                metadata={
-                    "model": self.MODEL,
-                    "stream": stream,
-                    "connection_id": connection_id,
-                    "status": "completed"
-                }
-            )
+            # await self.message_logger.log_exchange(
+            #     document_id=document_id,
+            #     conversation_id=conversation_id,
+            #     messages=messages,
+            #     response=response,
+            #     metadata={
+            #         "model": self.MODEL,
+            #         "stream": stream,
+            #         "connection_id": connection_id,
+            #         "status": "completed"
+            #     }
+            # )
             
             # Emit completion event
             await event_bus.emit(Event(
@@ -85,18 +88,18 @@ class AIService:
             logger.error(f"Error in chat: {str(e)}")
             
             # Log error
-            await self.message_logger.log_exchange(
-                document_id=document_id,
-                conversation_id=conversation_id,
-                messages=messages,
-                metadata={
-                    "model": self.MODEL,
-                    "stream": stream,
-                    "connection_id": connection_id,
-                    "status": "error",
-                    "error": str(e)
-                }
-            )
+            # await self.message_logger.log_exchange(
+            #     document_id=document_id,
+            #     conversation_id=conversation_id,
+            #     messages=messages,
+            #     metadata={
+            #         "model": self.MODEL,
+            #         "stream": stream,
+            #         "connection_id": connection_id,
+            #         "status": "error",
+            #         "error": str(e)
+            #     }
+            # )
             
             # Emit error event
             await event_bus.emit(Event(
@@ -109,6 +112,7 @@ class AIService:
             ))
             raise
             
+    @track_memory("AIService")
     async def generate_questions(
         self,
         document_id: str,
@@ -163,6 +167,7 @@ class AIService:
             ))
             raise
             
+    @track_memory("AIService")
     async def generate_summary(
         self,
         document_id: str,

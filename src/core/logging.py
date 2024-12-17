@@ -74,7 +74,7 @@ class StructuredFormatter(logging.Formatter):
 
 def compress_old_logs():
     """Compress log files older than 1 day"""
-    yesterday = datetime.now() - timedelta(days=1)
+    yesterday = datetime.now() - timedelta(minutes=60)
     
     for component_dir in LOGS_DIR.iterdir():
         if not component_dir.is_dir():

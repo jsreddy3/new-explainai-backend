@@ -60,11 +60,11 @@ class EventBus:
             process = psutil.Process(os.getpid())
             memory_info = process.memory_info()
             
-            self.logger.info(f"[EVENT BUS MEMORY] Total listeners: {total_listeners}")
-            self.logger.info(f"[EVENT BUS MEMORY] Listeners by type: {[(k, len(v)) for k, v in self.listeners.items()]}")
-            self.logger.info(f"[EVENT BUS MEMORY] Listeners size: {listeners_size / 1024 / 1024:.2f} MB")
-            self.logger.info(f"[EVENT BUS MEMORY] Process RSS: {memory_info.rss / 1024 / 1024:.2f} MB")
-            self.logger.info(f"[EVENT BUS MEMORY] Process VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
+            # self.logger.info(f"[EVENT BUS MEMORY] Total listeners: {total_listeners}")
+            # self.logger.info(f"[EVENT BUS MEMORY] Listeners by type: {[(k, len(v)) for k, v in self.listeners.items()]}")
+            # self.logger.info(f"[EVENT BUS MEMORY] Listeners size: {listeners_size / 1024 / 1024:.2f} MB")
+            # self.logger.info(f"[EVENT BUS MEMORY] Process RSS: {memory_info.rss / 1024 / 1024:.2f} MB")
+            # self.logger.info(f"[EVENT BUS MEMORY] Process VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
             
             await asyncio.sleep(10)  # Log every 10 seconds
     
@@ -114,10 +114,10 @@ class EventBus:
     
     def on(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
         """Register a listener for an event type"""
-        self.logger.info(f"[EVENT BUS] Registering handler {callback.__name__} for event type: {event_type}")
+        # self.logger.info(f"[EVENT BUS] Registering handler {callback.__name__} for event type: {event_type}")
         self.listeners[event_type].append(callback)
         total_listeners = sum(len(listeners) for listeners in self.listeners.values())
-        self.logger.info(f"[EVENT BUS] Total listeners after registration: {total_listeners}")
+        # self.logger.info(f"[EVENT BUS] Total listeners after registration: {total_listeners}")
     
     async def emit(self, event: Event):
         """Emit an event to all registered listeners"""
@@ -128,12 +128,12 @@ class EventBus:
     def remove_listener(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
         """Remove a listener for an event type"""
         if event_type in self.listeners:
-            self.logger.info(f"[EVENT BUS] Removing handler {callback.__name__} for event type: {event_type}")
+            # self.logger.info(f"[EVENT BUS] Removing handler {callback.__name__} for event type: {event_type}")
             self.listeners[event_type].remove(callback)
             if not self.listeners[event_type]:
                 del self.listeners[event_type]
             total_listeners = sum(len(listeners) for listeners in self.listeners.values())
-            self.logger.info(f"[EVENT BUS] Total listeners after removal: {total_listeners}")
+            # self.logger.info(f"[EVENT BUS] Total listeners after removal: {total_listeners}")
     
     async def shutdown(self):
         """Shutdown the event bus"""

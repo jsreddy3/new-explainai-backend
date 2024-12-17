@@ -85,7 +85,8 @@ class EventBus:
         while True:
             try:
                 event = await self._event_queue.get()
-                logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
+                if (event.type != "chat.token")
+                  logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
                 logger.debug(f"[EVENT BUS] Event data: {event.data}")
                 
                 # Process exact matches

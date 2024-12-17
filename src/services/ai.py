@@ -2,12 +2,11 @@
 
 from typing import Dict, List, Optional, AsyncGenerator, Tuple
 import logging
-import gc
 from litellm import acompletion
 from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
 from src.utils.message_logger import MessageLogger
-from src.utils.memory_tracker import track_memory, log_memory
+from src.utils.memory_tracker import track_memory
 
 logger = setup_logger(__name__)
 
@@ -28,88 +27,52 @@ class AIService:
         connection_id: str,
         stream: bool = True
     ) -> str:
+        """Chat with the AI model with streaming support
+        
+        Args:
+            document_id: ID of the document
+            conversation_id: ID of the conversation
+            messages: List of message dictionaries with role and content
+            stream: Whether to stream responses
+        """
         try:
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
-            log_memory("AIService", "before_completion")
-            logger.info(f"Message count: {len(messages)}, Total message content size: {sum(len(m.get('content', '')) for m in messages)}")
-            logger.debug(f"Messages: {messages}")  # Let's see the full messages
             
             # Call AI model
             logger.info("Calling AI model...")
             response = ""
-            log_memory("AIService", "before_litellm")
             completion = await acompletion(
                 model=self.MODEL,
                 messages=messages,
                 stream=stream
             )
-            log_memory("AIService", "after_litellm_before_first_chunk")
             
-            # Inspect completion object
-            logger.info(f"Completion object type: {type(completion)}")
-            try:
-                # Try to safely inspect completion object
-                completion_dict = {}
-                for attr in dir(completion):
-                    if not attr.startswith('_'):  # Skip private attributes
-                        try:
-                            value = getattr(completion, attr)
-                            if not callable(value):  # Skip methods
-                                completion_dict[attr] = str(value)
-                        except Exception as e:
-                            completion_dict[attr] = f"<Error getting value: {str(e)}>"
-                logger.info(f"Completion attributes: {completion_dict}")
-            except Exception as e:
-                logger.error(f"Error inspecting completion: {str(e)}")
-            
-            log_memory("AIService", "after_completion_before_streaming")
-            response_buffer = []
-            buffer_size = 0
-            chunk_count = 0
-            
-            async for chunk in completion:
-                chunk_count += 1
-                if chunk_count == 1:
-                    logger.debug(f"First chunk type: {type(chunk)}")
-                    logger.debug(f"First chunk dir: {dir(chunk)}")
-                    log_memory("AIService", "after_first_chunk")
-                
+            async for chunk in completion:                
                 # Extract content from the chunk
                 content = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
-                buffer_size += len(content)
-                response_buffer.append(content)
                 
                 # Emit token event
-                await event_bus.emit(Event(
-                    type="chat.token",
-                    document_id=document_id,
-                    connection_id=connection_id,
-                    data={"token": content}
-                ))
-                
-                # Log memory every 20 tokens and include buffer size
-                if buffer_size % 20 == 0:
-                    log_memory("AIService", f"streaming_progress_{buffer_size}")
-                    logger.debug(f"Response buffer size: {buffer_size} chars, Chunk count: {chunk_count}")
+                # await event_bus.emit(Event(
+                #     type="chat.token",
+                #     document_id=document_id,
+                #     connection_id=connection_id,
+                #     data={"token": content}
+                # ))
+                response += content
             
-            response = "".join(response_buffer)
-            response_buffer.clear()
-            del response_buffer
-            
-            # Force cleanup of streaming objects
-            if hasattr(completion, 'completion_stream'):
-                try:
-                    await completion.completion_stream.aclose()
-                except:
-                    pass
-            
-            # Clear all references
-            if hasattr(completion, '__dict__'):
-                completion.__dict__.clear()
-            del completion
-            
-            log_memory("AIService", "after_streaming")
-            logger.info(f"Final response size: {len(response)} chars, Total chunks: {chunk_count}")
+            # Log exchange with response
+            # await self.message_logger.log_exchange(
+            #     document_id=document_id,
+            #     conversation_id=conversation_id,
+            #     messages=messages,
+            #     response=response,
+            #     metadata={
+            #         "model": self.MODEL,
+            #         "stream": stream,
+            #         "connection_id": connection_id,
+            #         "status": "completed"
+            #     }
+            # )
             
             # Emit completion event
             await event_bus.emit(Event(
@@ -119,15 +82,10 @@ class AIService:
                 data={"response": response}
             ))
             
-            # Force GC collection
-            gc.collect()
-            
-            log_memory("AIService", "after_completion_event")
             return response
             
         except Exception as e:
             logger.error(f"Error in chat: {str(e)}")
-            log_memory("AIService", "error_state")
             
             # Log error
             # await self.message_logger.log_exchange(

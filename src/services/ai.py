@@ -6,7 +6,7 @@ from litellm import acompletion
 from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
 from src.utils.message_logger import MessageLogger
-from src.utils.memory_tracker import track_memory
+from src.utils.memory_tracker import track_memory, log_memory
 
 logger = setup_logger(__name__)
 
@@ -37,6 +37,7 @@ class AIService:
         """
         try:
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
+            log_memory("AIService", "before_completion")
             
             # Call AI model
             logger.info("Calling AI model...")
@@ -46,6 +47,8 @@ class AIService:
                 messages=messages,
                 stream=stream
             )
+            
+            log_memory("AIService", "after_completion_before_streaming")
             
             async for chunk in completion:                
                 # Extract content from the chunk
@@ -59,20 +62,12 @@ class AIService:
                     data={"token": content}
                 ))
                 response += content
+                
+                # Log memory every 20 tokens to avoid spam
+                if len(response) % 20 == 0:
+                    log_memory("AIService", f"streaming_progress_{len(response)}")
             
-            # Log exchange with response
-            # await self.message_logger.log_exchange(
-            #     document_id=document_id,
-            #     conversation_id=conversation_id,
-            #     messages=messages,
-            #     response=response,
-            #     metadata={
-            #         "model": self.MODEL,
-            #         "stream": stream,
-            #         "connection_id": connection_id,
-            #         "status": "completed"
-            #     }
-            # )
+            log_memory("AIService", "after_streaming")
             
             # Emit completion event
             await event_bus.emit(Event(
@@ -82,10 +77,12 @@ class AIService:
                 data={"response": response}
             ))
             
+            log_memory("AIService", "after_completion_event")
             return response
             
         except Exception as e:
             logger.error(f"Error in chat: {str(e)}")
+            log_memory("AIService", "error_state")
             
             # Log error
             # await self.message_logger.log_exchange(

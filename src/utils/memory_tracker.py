@@ -13,6 +13,12 @@ def get_memory_usage() -> float:
     """Get current memory usage in MB"""
     return process.memory_info().rss / 1024 / 1024
 
+def log_memory(component: str, operation: str):
+    """Log current memory usage at a specific point"""
+    mem = get_memory_usage()
+    logger.info(f"[{component}][{operation}] Memory snapshot: {mem:.2f}MB")
+    return mem
+
 def track_memory(component: str):
     """
     Decorator to track memory usage before and after function execution

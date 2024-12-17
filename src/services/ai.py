@@ -27,17 +27,10 @@ class AIService:
         connection_id: str,
         stream: bool = True
     ) -> str:
-        """Chat with the AI model with streaming support
-        
-        Args:
-            document_id: ID of the document
-            conversation_id: ID of the conversation
-            messages: List of message dictionaries with role and content
-            stream: Whether to stream responses
-        """
         try:
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
             log_memory("AIService", "before_completion")
+            logger.info(f"Message count: {len(messages)}, Total message content size: {sum(len(m.get('content', '')) for m in messages)}")
             
             # Call AI model
             logger.info("Calling AI model...")
@@ -49,10 +42,14 @@ class AIService:
             )
             
             log_memory("AIService", "after_completion_before_streaming")
+            response_buffer = []
+            buffer_size = 0
             
             async for chunk in completion:                
                 # Extract content from the chunk
                 content = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
+                buffer_size += len(content)
+                response_buffer.append(content)
                 
                 # Emit token event
                 await event_bus.emit(Event(
@@ -61,13 +58,15 @@ class AIService:
                     connection_id=connection_id,
                     data={"token": content}
                 ))
-                response += content
                 
-                # Log memory every 20 tokens to avoid spam
-                if len(response) % 20 == 0:
-                    log_memory("AIService", f"streaming_progress_{len(response)}")
+                # Log memory every 20 tokens and include buffer size
+                if buffer_size % 20 == 0:
+                    log_memory("AIService", f"streaming_progress_{buffer_size}")
+                    logger.debug(f"Response buffer size: {buffer_size} chars")
             
+            response = "".join(response_buffer)
             log_memory("AIService", "after_streaming")
+            logger.info(f"Final response size: {len(response)} chars")
             
             # Emit completion event
             await event_bus.emit(Event(

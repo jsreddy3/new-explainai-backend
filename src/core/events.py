@@ -4,6 +4,7 @@ from typing import Dict, List, Callable, Awaitable, Any, Optional
 import json
 from ..core.logging import setup_logger
 from collections import defaultdict
+from ..utils.memory_tracker import log_memory, get_memory_usage
 
 logger = setup_logger(__name__)
 
@@ -85,30 +86,37 @@ class EventBus:
         while True:
             try:
                 event = await self._event_queue.get()
+                queue_size = self._event_queue.qsize()
+                
                 if (event.type != "chat.token"):
-                  logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
-                logger.debug(f"[EVENT BUS] Event data: {event.data}")
+                    logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
+                    logger.info(f"[EVENT BUS] Queue size: {queue_size}, Listener count: {len(self.listeners.get(event.type, []))}")
+                    log_memory("EventBus", f"before_emit_{event.type}")
                 
                 # Process exact matches
                 if event.type in self.listeners:
-                    for listener in self.listeners[event.type]:
+                    for callback in self.listeners[event.type]:
                         try:
-                            # logger.info(f"[EVENT BUS] Registering handler for event type: {event.type}")
-                            logger.debug(f"EVENT BUS: Calling listener {listener.__name__} for event {event.type}")
-                            await listener(event)
+                            before_mem = get_memory_usage()
+                            await callback(event)
+                            after_mem = get_memory_usage()
+                            if event.type != "chat.token" and after_mem - before_mem > 0.1:  # Only log significant changes
+                                logger.info(f"[EVENT BUS] Handler {callback.__name__} for {event.type} memory delta: {after_mem - before_mem:.2f}MB")
                         except Exception as e:
                             logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
                 
                 # Process wildcard listeners
                 if "*" in self.listeners:
-                    for listener in self.listeners["*"]:
+                    for callback in self.listeners["*"]:
                         try:
-                            # logger.info(f"[EVENT BUS] Registering handler for event type: *")
-                            logger.debug(f"EVENT BUS: Calling wildcard listener {listener.__name__} for event {event.type}")
-                            await listener(event)
+                            logger.debug(f"EVENT BUS: Calling wildcard listener {callback.__name__} for event {event.type}")
+                            await callback(event)
                         except Exception as e:
                             logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
                 
+                if (event.type != "chat.token"):
+                    log_memory("EventBus", f"after_emit_{event.type}")
+                    
                 self._event_queue.task_done()
             except Exception as e:
                 logger.error(f"EVENT BUS: Error processing event: {str(e)}")

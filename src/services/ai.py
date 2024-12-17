@@ -31,21 +31,35 @@ class AIService:
             logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
             log_memory("AIService", "before_completion")
             logger.info(f"Message count: {len(messages)}, Total message content size: {sum(len(m.get('content', '')) for m in messages)}")
+            logger.debug(f"Messages: {messages}")  # Let's see the full messages
             
             # Call AI model
             logger.info("Calling AI model...")
             response = ""
+            log_memory("AIService", "before_litellm")
             completion = await acompletion(
                 model=self.MODEL,
                 messages=messages,
                 stream=stream
             )
+            log_memory("AIService", "after_litellm_before_first_chunk")
+            
+            # Inspect completion object
+            logger.debug(f"Completion object type: {type(completion)}")
+            logger.debug(f"Completion object dir: {dir(completion)}")
             
             log_memory("AIService", "after_completion_before_streaming")
             response_buffer = []
             buffer_size = 0
+            chunk_count = 0
             
-            async for chunk in completion:                
+            async for chunk in completion:
+                chunk_count += 1
+                if chunk_count == 1:
+                    logger.debug(f"First chunk type: {type(chunk)}")
+                    logger.debug(f"First chunk dir: {dir(chunk)}")
+                    log_memory("AIService", "after_first_chunk")
+                
                 # Extract content from the chunk
                 content = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
                 buffer_size += len(content)
@@ -62,11 +76,15 @@ class AIService:
                 # Log memory every 20 tokens and include buffer size
                 if buffer_size % 20 == 0:
                     log_memory("AIService", f"streaming_progress_{buffer_size}")
-                    logger.debug(f"Response buffer size: {buffer_size} chars")
+                    logger.debug(f"Response buffer size: {buffer_size} chars, Chunk count: {chunk_count}")
             
             response = "".join(response_buffer)
             log_memory("AIService", "after_streaming")
-            logger.info(f"Final response size: {len(response)} chars")
+            logger.info(f"Final response size: {len(response)} chars, Total chunks: {chunk_count}")
+            
+            # Clear buffers explicitly
+            response_buffer.clear()
+            del response_buffer
             
             # Emit completion event
             await event_bus.emit(Event(

@@ -5,6 +5,7 @@ import os
 from typing import Callable, Any
 import asyncio
 from ..core.logging import setup_logger
+import gc
 
 logger = setup_logger(__name__)
 process = psutil.Process(os.getpid())
@@ -18,6 +19,15 @@ def log_memory(component: str, operation: str):
     mem = get_memory_usage()
     logger.info(f"[{component}][{operation}] Memory snapshot: {mem:.2f}MB")
     return mem
+
+def log_gc_stats(component: str, operation: str):
+    """Log garbage collection stats"""
+    gc.collect()  # Force collection
+    counts = gc.get_count()
+    logger.info(f"[{component}][{operation}] GC generations (0,1,2): {counts}")
+    for generation in range(3):
+        count = len(gc.get_objects(generation))
+        logger.info(f"[{component}][{operation}] Generation {generation} object count: {count}")
 
 def track_memory(component: str):
     """
@@ -42,6 +52,7 @@ def track_memory(component: str):
                         f"Completed - Delta: {delta:+.2f}MB, "
                         f"Current: {end_mem:.2f}MB"
                     )
+                    log_gc_stats(component, func.__name__)
                     return result
                 except Exception as e:
                     end_mem = get_memory_usage()
@@ -51,6 +62,7 @@ def track_memory(component: str):
                         f"Failed - Delta: {delta:+.2f}MB, "
                         f"Current: {end_mem:.2f}MB"
                     )
+                    log_gc_stats(component, func.__name__)
                     raise e
                 
         else:
@@ -68,6 +80,7 @@ def track_memory(component: str):
                         f"Completed - Delta: {delta:+.2f}MB, "
                         f"Current: {end_mem:.2f}MB"
                     )
+                    log_gc_stats(component, func.__name__)
                     return result
                 except Exception as e:
                     end_mem = get_memory_usage()
@@ -77,6 +90,7 @@ def track_memory(component: str):
                         f"Failed - Delta: {delta:+.2f}MB, "
                         f"Current: {end_mem:.2f}MB"
                     )
+                    log_gc_stats(component, func.__name__)
                     raise e
                 
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper

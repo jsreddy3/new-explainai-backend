@@ -17,13 +17,11 @@ from src.models.database import Conversation, Document
 from ..routes.auth import get_current_user_or_none, User
 from ...services.auth import AuthService
 from src.core.config import settings
-from src.utils.memory_tracker import track_memory, memory_snapshot, get_memory_usage
 
 logger = setup_logger(__name__)
 router = APIRouter()
 
 class WebSocketHandler:
-    @track_memory("WebSocketHandler", breakpoint_threshold_mb=50)  # Alert if instance creation takes >50MB
     def __init__(self, websocket: WebSocket, document_id: str, user: Optional[User], db: AsyncSession):
         self.websocket = websocket
         self.document_id = document_id
@@ -32,7 +30,7 @@ class WebSocketHandler:
         self.conversation_service = ConversationService(db)
         self.document_service = DocumentService(db)
         self.queue = asyncio.Queue()
-        self.connection_id = str(uuid.uuid4())
+        self.connection_id = None
         self.task = None
         self.event_types = [
             # Chat events
@@ -42,7 +40,7 @@ class WebSocketHandler:
             "conversation.main.create.completed", "conversation.main.create.error",
             "conversation.chunk.create.completed", "conversation.chunk.create.error",
             "conversation.chunk.merge.completed", "conversation.chunk.merge.error",
-
+            
             # Message events
             "conversation.message.send.completed", "conversation.message.send.error",
 
@@ -50,71 +48,18 @@ class WebSocketHandler:
             "conversation.list.completed", "conversation.list.error",
             "conversation.chunk.list.completed", "conversation.chunk.list.error",
             "conversation.messages.completed", "conversation.messages.error",
+
+            # Question events
+            "conversation.questions.generate.completed", "conversation.questions.generate.error",
+            "conversation.questions.list.completed", "conversation.questions.list.error",
+            
+            # Merge events
+            "conversation.merge.completed", "conversation.merge.error",
+            
+            # Document events (needed for chunk operations)
+            "document.chunk.list.completed", "document.chunk.list.error",
+            "conversation.chunk.get.completed", "conversation.chunk.get.error"
         ]
-
-        # Take memory snapshot at initialization
-        memory_snapshot(f"ws_handler_init_{self.connection_id}")
-
-    @track_memory("WebSocketHandler")
-    async def setup(self):
-        """Setup the WebSocket connection and start listening for events"""
-        try:
-            await self.websocket.accept()
-
-            # Register for events
-            for event_type in self.event_types:
-                await manager.register_listener(self.connection_id, event_type)
-
-            # Start listening task
-            self.task = asyncio.create_task(self.listen_for_events())
-
-        except Exception as e:
-            logger.error(f"Error in WebSocket setup: {e}")
-            raise
-
-    @track_memory("WebSocketHandler", breakpoint_threshold_mb=10)  # Alert if any event processing takes >10MB
-    async def listen_for_events(self):
-        """Listen for and forward events to the WebSocket"""
-        try:
-            while True:
-                event = await manager.get_events(self.connection_id)
-                if event:
-                    await self.websocket.send_json(event.dict())
-
-        except WebSocketDisconnect:
-            logger.info(f"WebSocket disconnected: {self.connection_id}")
-        except Exception as e:
-            logger.error(f"Error in event listener: {e}")
-        finally:
-            await self.cleanup()
-
-    @track_memory("WebSocketHandler")
-    async def cleanup(self):
-        """Clean up resources when the connection closes"""
-        try:
-            # Cancel listener task
-            if self.task and not self.task.done():
-                self.task.cancel()
-                try:
-                    await self.task
-                except asyncio.CancelledError:
-                    pass
-
-            # Clean up queue
-            while not self.queue.empty():
-                try:
-                    self.queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-
-            # Unregister from event manager
-            await manager.disconnect(self.connection_id, self.document_id, "conversation")
-
-            # Take final memory snapshot
-            memory_snapshot(f"ws_handler_cleanup_{self.connection_id}")
-
-        except Exception as e:
-            logger.error(f"Error in WebSocket cleanup: {e}")
 
     async def connect(self):
         """Establish WebSocket connection and set up event listeners"""
@@ -123,7 +68,7 @@ class WebSocketHandler:
         if not document:
             await self.websocket.close(code=4003)  # Document doesn't exist
             return None
-
+            
         # Check if this is an example document
         if self.document_id in settings.EXAMPLE_DOCUMENT_IDS:
             # Allow access to example documents
@@ -133,10 +78,10 @@ class WebSocketHandler:
             if not self.user or document["owner_id"] != str(self.user.id):
                 await self.websocket.close(code=4003)  # Not authorized
                 return None
-
+            
         # Generate a unique connection ID
         self.connection_id = str(uuid.uuid4())
-
+        
         # Register with the WebSocket manager, which now handles event queuing
         await manager.connect(
             connection_id=self.connection_id,
@@ -144,15 +89,28 @@ class WebSocketHandler:
             scope="conversation",
             websocket=self.websocket
         )
-
+        
         # Register which event types this connection cares about
         for event_type in self.event_types:
             await manager.register_listener(self.connection_id, event_type)
-
+        
         # Start a background task to process events
         self.task = asyncio.create_task(self.process_events())
-
+        
         return self.connection_id
+
+    async def cleanup(self):
+        """Cleanup resources when connection is closed"""
+        if self.task:
+            self.task.cancel()
+            
+        if self.connection_id:
+            # Clean up demo conversations if this was a demo session
+            if self.document_id in settings.EXAMPLE_DOCUMENT_IDS:
+                await self.conversation_service.cleanup_demo_conversations(self.connection_id, self.db)
+            
+            # Disconnect from event bus
+            await manager.disconnect(self.connection_id, self.document_id, "conversation")
 
     async def process_events(self):
         """Process events received from the WebSocket manager"""
@@ -328,7 +286,7 @@ class WebSocketHandler:
         """Handle request to create main conversation"""
         # document_id is already available in self.document_id
         chunk_id = data.get("chunk_id")  # Optional
-
+        
         await event_bus.emit(Event(
             type="conversation.main.create.requested",
             document_id=self.document_id,
@@ -350,11 +308,11 @@ class WebSocketHandler:
     async def handle_get_conversations_by_sequence(self, data: Dict):
         """Handle request to get conversations by chunk sequence number"""
         sequence_number = data.get("sequence_number")
-
+        
         if sequence_number is None:  # explicitly check None since 0 is valid
             await self.websocket.send_json({"error": "Missing required field: sequence_number"})
             return
-
+            
         await event_bus.emit(Event(
             type="conversation.chunk.get.requested",
             document_id=self.document_id,
@@ -394,9 +352,8 @@ class WebSocketHandler:
             await self.handle_list_messages(data)
         else:
             await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
-
+                
 @router.websocket("/conversations/stream/{document_id}")
-@track_memory("ConversationRoutes", breakpoint_threshold_mb=100)  # Alert if stream setup takes >100MB
 async def conversation_stream(
     websocket: WebSocket,
     document_id: str,
@@ -404,14 +361,14 @@ async def conversation_stream(
     db: AsyncSession = Depends(get_db)
 ):
     """Stream conversation events via WebSocket
-
+    
     Handles conversation-related events including:
     - Creation events
     - Message events
     - List events
     - Question generation events
     - Merge events
-
+    
     Args:
         websocket (WebSocket): The WebSocket connection
         document_id (str): The ID of the document to stream events for
@@ -425,7 +382,7 @@ async def conversation_stream(
 
         handler = WebSocketHandler(websocket, document_id, user, db)
         connection_id = await handler.connect()
-
+        
         if connection_id:
             while True:
                 message = await websocket.receive_json()

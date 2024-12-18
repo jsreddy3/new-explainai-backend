@@ -51,6 +51,7 @@ email-validator==2.1.2
 litellm==1.52.11
 reportlab==4.0.8
 nest-asyncio==1.5.8
+objgraph==3.6.0
 
 # HTTP Clients
 httpx>=0.26.0,<0.28.0

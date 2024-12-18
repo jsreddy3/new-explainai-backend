@@ -51,13 +51,13 @@ class AIService:
                 # Extract content from the chunk
                 content = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
                 
-                # Emit token event
-                # await event_bus.emit(Event(
-                #     type="chat.token",
-                #     document_id=document_id,
-                #     connection_id=connection_id,
-                #     data={"token": content}
-                # ))
+                Emit token event
+                await event_bus.emit(Event(
+                    type="chat.token",
+                    document_id=document_id,
+                    connection_id=connection_id,
+                    data={"token": content}
+                ))
                 response += content
             
             # Log exchange with response

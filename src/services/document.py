@@ -10,6 +10,8 @@ from ..core.logging import setup_logger
 from ..services.pdf import PDFService
 from ..core.events import Event, event_bus
 from ..db.session import engine
+from ..utils.memory_tracker import track_memory, analyze_growth
+import gc
 
 logger = setup_logger(__name__)
 
@@ -22,6 +24,7 @@ class DocumentService:
             cls._instance = super().__new__(cls)
         return cls._instance
 
+    @track_memory("DocumentService")
     def __init__(self, db: AsyncSession = None):
         if not self._initialized and db is not None:
             self.AsyncSessionLocal = sessionmaker(
@@ -161,6 +164,7 @@ class DocumentService:
                 data={"error": str(e)}
             ))
 
+    @track_memory("DocumentService")
     async def get_document(self, document_id: str, db: AsyncSession) -> Optional[Dict]:
         try:
             logger.info(f"Getting document: {document_id}")
@@ -203,6 +207,7 @@ class DocumentService:
             logger.error(f"Error getting document: {str(e)}")
             return None
 
+    @track_memory("DocumentService")
     async def get_document_chunks(self, document_id: str, db: AsyncSession) -> List[Dict]:
         try:
             result = await db.execute(
@@ -224,6 +229,7 @@ class DocumentService:
             logger.error(f"Error getting document chunks: {str(e)}")
             return []
 
+    @track_memory("DocumentService")
     async def navigate_chunks(self, document_id: str, chunk_index: int, db: AsyncSession) -> Optional[Dict]:
         try:
             result = await db.execute(
@@ -258,6 +264,7 @@ class DocumentService:
             logger.error(f"Error navigating chunks: {str(e)}")
             return None
 
+    @track_memory("DocumentService")
     async def get_chunk_content(self, chunk_id: str, db: AsyncSession) -> Optional[str]:
         result = await db.execute(
             select(DocumentChunk).where(DocumentChunk.id == chunk_id)
@@ -265,6 +272,7 @@ class DocumentService:
         chunk = result.scalar_one_or_none()
         return chunk.content if chunk else None
 
+    @track_memory("DocumentService")
     async def list_documents(self, db: AsyncSession, skip: int = 0, limit: int = 10) -> List[Dict]:
         try:
             result = await db.execute(

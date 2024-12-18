@@ -89,9 +89,22 @@ class EventBus:
     def print_event_refs(self):
         live_events = [ref() for ref in event_refs if ref() is not None]
         logger.info(f"Live events: {len(live_events)}")
+        event_types = {}
         for event in live_events:
-            if event:  # Check if event still exists
-                event.get_referrers()
+            if event:
+                event_types[event.type] = event_types.get(event.type, 0) + 1
+                # Get more specific about where it's referenced
+                for ref in gc.get_referrers(event):
+                    if isinstance(ref, dict):
+                        for owner in gc.get_referrers(ref):
+                            logger.info(f"Event {event.type} referenced by dict in: {owner.__class__.__name__}.{getattr(owner, '__name__', '')}")
+                    elif isinstance(ref, list):
+                        for owner in gc.get_referrers(ref):
+                            logger.info(f"Event {event.type} referenced by list in: {owner.__class__.__name__}.{getattr(owner, '__name__', '')}")
+                    elif hasattr(ref, '__class__'):
+                        logger.info(f"Event {event.type} referenced directly by: {ref.__class__.__name__}")
+        
+        logger.info(f"Event counts by type: {event_types}")
 
     def initialize(self):
         """Initialize the event bus if not already initialized"""

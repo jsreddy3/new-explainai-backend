@@ -34,10 +34,10 @@ class AIService:
             stream: Whether to stream responses
         """
         try:
-            logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
+            # logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
             
             # Call AI model
-            logger.info("Calling AI model...")
+            # logger.info("Calling AI model...")
             response = ""
             completion = await acompletion(
                 model=self.MODEL,

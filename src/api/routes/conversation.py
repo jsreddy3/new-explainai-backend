@@ -323,7 +323,6 @@ class WebSocketHandler:
 
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message"""
-        print("Processing message: ", message)
         msg_type = message.get("type")
         data = message.get("data", {})
 
@@ -337,7 +336,6 @@ class WebSocketHandler:
                 "highlight_conversation_id": data.get("highlight_conversation_id")
             })
         elif msg_type == "conversation.message.send":
-            print("Routes handling send message")
             await self.handle_send_message(data)
         elif msg_type == "conversation.list":
             await self.handle_list_conversations(data)

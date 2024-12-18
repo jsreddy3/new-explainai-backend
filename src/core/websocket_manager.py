@@ -68,16 +68,22 @@ class WebSocketManager:
                 for scope in self.connections[document_id].values():
                     if event.connection_id in scope:
                         connection_id = event.connection_id
-                        websocket = scope[connection_id]
                         if (connection_id in self.connection_listeners and 
                             event.type in self.connection_listeners[connection_id]):
                             try:
-                                await asyncio.wait_for(
-                                    self.event_queues[connection_id].put(event), 
-                                    timeout=1.0  # Prevent indefinite blocking
-                                )
-                            except asyncio.QueueFull:
-                                logger.error(f"[WebSocketManager] Queue full for connection {connection_id}")
+                                queue = self.event_queues[connection_id]
+                                # Don't wait indefinitely if queue is full
+                                try:
+                                    await asyncio.wait_for(queue.put(event), timeout=1.0)
+                                except asyncio.TimeoutError:
+                                    logger.error(f"[WebSocketManager] Queue {connection_id} put timeout")
+                                    # Try to clear some space
+                                    while not queue.empty():
+                                        try:
+                                            queue.get_nowait()
+                                            queue.task_done()
+                                        except asyncio.QueueEmpty:
+                                            break
                             except Exception as e:
                                 logger.error(f"Error dispatching event to connection {connection_id}: {e}")
         except Exception as e:
@@ -118,11 +124,18 @@ class WebSocketManager:
                 del self.connection_listeners[connection_id]
             if connection_id in self.event_queues:
                 # Clear the queue first
-                while not self.event_queues[connection_id].empty():
+                queue = self.event_queues[connection_id]
+                while not queue.empty():
                     try:
-                        self.event_queues[connection_id].get_nowait()
+                        event = queue.get_nowait()
+                        queue.task_done()  # Mark each event as done
                     except asyncio.QueueEmpty:
                         break
+                # Wait for all tasks to be marked as done
+                try:
+                    await asyncio.wait_for(queue.join(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout waiting for queue {connection_id} to clear")
                 del self.event_queues[connection_id]
             
             # Log cleanup state

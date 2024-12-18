@@ -11,7 +11,6 @@ logger = setup_logger(__name__)
 
 # websocket_manager.py
 class WebSocketManager:
-    @track_memory("WebSocketManager")
     def __init__(self):
         self.connections: Dict[str, Dict[str, Dict[str, WebSocket]]] = {}  # {document_id: {scope: {connection_id: websocket}}}
         self.connection_listeners: Dict[str, Set[str]] = {}  # {connection_id: set(event_types)}
@@ -23,7 +22,6 @@ class WebSocketManager:
         
         event_bus.on("*", self.dispatch_event)  # Need to add wildcard support to event bus
 
-    @track_memory("WebSocketManager")
     async def connect(self, connection_id: str, document_id: str, scope: str, websocket: WebSocket):
         await websocket.accept()
         if document_id not in self.connections:
@@ -53,15 +51,15 @@ class WebSocketManager:
     async def dispatch_event(self, event: Event):
         """Route events to appropriate connections based on document_id and event type"""
         try:
-            self._total_events_processed += 1
-            if self._total_events_processed % 100 == 0:  # Log every 100 events
-                logger.info(f"[WebSocketManager] Total events processed: {self._total_events_processed}")
-                logger.info(f"[WebSocketManager] Current memory: {get_memory_usage():.2f}MB")
+            # self._total_events_processed += 1
+            # if self._total_events_processed % 100 == 0:  # Log every 100 events
+            #     logger.info(f"[WebSocketManager] Total events processed: {self._total_events_processed}")
+            #     logger.info(f"[WebSocketManager] Current memory: {get_memory_usage():.2f}MB")
                 
-                # Log queue sizes
-                for conn_id, queue in self.event_queues.items():
-                    self._queue_sizes[conn_id] = queue.qsize()
-                logger.info(f"[WebSocketManager] Queue sizes: {self._queue_sizes}")
+            #     # Log queue sizes
+            #     for conn_id, queue in self.event_queues.items():
+            #         self._queue_sizes[conn_id] = queue.qsize()
+            #     logger.info(f"[WebSocketManager] Queue sizes: {self._queue_sizes}")
             
             document_id = event.document_id
             if document_id in self.connections:
@@ -89,7 +87,6 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Error in dispatch_event: {str(e)}")
 
-    @track_memory("WebSocketManager")
     async def get_events(self, connection_id: str) -> Event:
         """Get events for a specific connection"""
         if connection_id in self.event_queues:
@@ -105,7 +102,6 @@ class WebSocketManager:
             return event
         raise ValueError(f"No queue found for connection {connection_id}")
 
-    @track_memory("WebSocketManager")
     async def disconnect(self, connection_id: str, document_id: str, scope: str):
         """Clean up resources when a connection is closed"""
         try:

@@ -55,8 +55,8 @@ class EventBus:
         while True:
             process = psutil.Process(os.getpid())
             memory_info = process.memory_info()
-            logger.info(f"[EVENT BUS MEMORY] Process RSS: {memory_info.rss / 1024 / 1024:.2f} MB")
-            logger.info(f"[EVENT BUS MEMORY] Process VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
+            # logger.info(f"[EVENT BUS MEMORY] Process RSS: {memory_info.rss / 1024 / 1024:.2f} MB")
+            # logger.info(f"[EVENT BUS MEMORY] Process VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
             await asyncio.sleep(10)  # Log every 10 seconds
     
     def initialize(self):

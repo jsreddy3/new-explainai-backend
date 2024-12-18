@@ -17,7 +17,7 @@ class Event:
 
     def __post_init__(self):
         self._created_at = asyncio.get_event_loop().time()
-        logger.info(f"Created event {self.type} at {self._created_at}")
+        # logger.info(f"Created event {self.type} at {self._created_at}")
 
     def dict(self):
         """Convert Event to a dictionary."""
@@ -76,7 +76,8 @@ class EventBus:
         while True:
             try:
                 event = await self._event_queue.get()
-                logger.info(f"[EVENT BUS] Processing event: type={event.type}")
+                if (event.type != "chat.token"):
+                  logger.info(f"[EVENT BUS] Processing event: type={event.type}")
                 
                 # Process exact matches
                 if event.type in self.listeners:

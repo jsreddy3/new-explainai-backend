@@ -95,7 +95,7 @@ class WebSocketManager:
             logger.info(f"Queue {connection_id} first few items types: {[type(item) for item in list(deque)[:5]]}")
             
             event = await queue.get()
-            # Don't call task_done() yet to see if this is our issue
+            queue.task_done()  # Mark task as done immediately after get()
             return event
         raise ValueError(f"No queue found for connection {connection_id}")
 

@@ -29,7 +29,6 @@ class WebSocketHandler:
         self.db = db
         self.conversation_service = ConversationService(db)
         self.document_service = DocumentService(db)
-        self.queue = asyncio.Queue()
         self.connection_id = None
         self.task = None
         self.event_types = [

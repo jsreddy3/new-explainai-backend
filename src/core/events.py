@@ -101,6 +101,11 @@ class EventBus:
         live_events = [ref() for ref in event_refs if ref() is not None]
         logger.info(f"Live events: {len(live_events)}")
         event_types = {}
+        
+        # Check event bus state
+        logger.info(f"EventBus listeners count: {sum(len(listeners) for listeners in self.listeners.values())}")
+        logger.info(f"EventBus listener types: {list(self.listeners.keys())}")
+        
         for event in live_events:
             if event:
                 event_types[event.type] = event_types.get(event.type, 0) + 1
@@ -112,8 +117,16 @@ class EventBus:
                     elif isinstance(ref, list):
                         for owner in gc.get_referrers(ref):
                             logger.info(f"Event {event.type} referenced by list in: {owner.__class__.__name__}.{getattr(owner, '__name__', '')}")
+                    elif isinstance(ref, asyncio.Queue):
+                        logger.info(f"Event {event.type} referenced by Queue with size: {ref.qsize()}")
                     elif hasattr(ref, '__class__'):
                         logger.info(f"Event {event.type} referenced directly by: {ref.__class__.__name__}")
+                        
+                # Check if event is referenced by any listener closures
+                for listener_list in self.listeners.values():
+                    for listener in listener_list:
+                        if event in gc.get_referrers(listener):
+                            logger.info(f"Event {event.type} referenced by listener: {listener.__name__}")
         
         logger.info(f"Event counts by type: {event_types}")
 
@@ -133,6 +146,10 @@ class EventBus:
         """Process events from the queue"""
         while True:
             try:
+                # Log queue size periodically
+                logger.info(f"EventBus queue size: {self._event_queue.qsize()}")
+                logger.info(f"EventBus queue internal deque size: {len(self._event_queue._queue)}")
+                
                 event = await self._event_queue.get()
                 logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
                 logger.debug(f"[EVENT BUS] Event data: {event.data}")
@@ -159,6 +176,7 @@ class EventBus:
                 if event.type == "chat.token":
                     self.print_event_refs()
                 
+                # Mark task as done after processing
                 self._event_queue.task_done()
             except Exception as e:
                 logger.error(f"EVENT BUS: Error processing event: {str(e)}")

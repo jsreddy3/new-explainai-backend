@@ -5,7 +5,6 @@ from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
 import uuid
-from ...utils.memory_tracker import track_memory, analyze_growth
 
 from src.db.session import get_db
 from src.services.conversation import ConversationService
@@ -329,10 +328,6 @@ class WebSocketHandler:
         msg_type = message.get("type")
         data = message.get("data", {})
 
-        mem_report = analyze_growth("WebSocketHandler", threshold_mb=10.0)
-        if mem_report:
-            logger.warning(f"Memory growth in websocket handler:\n{mem_report}")
-
         if msg_type == "conversation.main.create":
             await self.handle_create_main_conversation(data)
         elif msg_type == "conversation.chunk.create":
@@ -358,7 +353,6 @@ class WebSocketHandler:
         else:
             await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
                 
-@track_memory("ConversationRoutes")
 @router.websocket("/conversations/stream/{document_id}")
 async def conversation_stream(
     websocket: WebSocket,

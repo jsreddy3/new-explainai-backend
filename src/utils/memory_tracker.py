@@ -1,4 +1,4 @@
-"""Memory tracking utilities with object graph analysis"""
+"""Memory tracking utilities with advanced debugging capabilities"""
 import functools
 import psutil
 import os
@@ -7,6 +7,7 @@ import asyncio
 from ..core.logging import setup_logger
 import objgraph
 import gc
+import sys
 import tracemalloc
 from datetime import datetime
 
@@ -15,114 +16,88 @@ process = psutil.Process(os.getpid())
 
 # Global tracking
 _memory_snapshots: Dict[str, float] = {}
-_object_counts: Dict[str, int] = {}
-tracemalloc.start(25)  # Keep 25 frames for each allocation
+_operation_counts: Dict[str, int] = {}
+tracemalloc.start(25)  # Keep 25 frames of memory allocation info
 
 def get_memory_usage() -> float:
     """Get current memory usage in MB"""
     return process.memory_info().rss / 1024 / 1024
 
-def analyze_growth(component: str, threshold_mb: float = 10.0) -> Optional[str]:
-    """Analyze memory growth and provide insights if above threshold"""
-    current = get_memory_usage()
-    if component in _memory_snapshots:
-        growth = current - _memory_snapshots[component]
-        if growth > threshold_mb:
-            # Get top memory users
-            snapshot = tracemalloc.take_snapshot()
-            top_stats = snapshot.statistics('lineno')
-            
-            # Get object growth
-            types = objgraph.most_common_types(limit=5)
-            
-            report = [
-                f"Memory growth detected in {component}: {growth:.2f}MB",
-                "\nTop memory allocations:",
-                *[f"{stat.count:>6}: {stat.size/1024/1024:.1f}MB {stat.traceback}" 
-                  for stat in top_stats[:3]],
-                "\nMost common types:",
-                *[f"{name:>6}: {count}" for name, count in types]
-            ]
-            
-            # If significant growth, show reference paths
-            if growth > threshold_mb * 2:
-                # Find reference chains to common objects
-                for typename, count in types[:2]:
-                    obj = objgraph.by_type(typename)[:1]
-                    if obj:
-                        chain = objgraph.find_backref_chain(obj[0], objgraph.is_proper_module)
-                        report.append(f"\nReference chain to {typename}:")
-                        report.append(str(chain))
-            
-            return "\n".join(report)
-    
-    _memory_snapshots[component] = current
-    return None
+def get_object_counts(limit: int = 10) -> Dict[str, int]:
+    """Get counts of most common types"""
+    return dict(objgraph.most_common_types(limit=limit))
 
-def track_memory(component: str, threshold_mb: float = 10.0):
+def memory_snapshot(name: str):
+    """Take a memory snapshot with a given name"""
+    _memory_snapshots[name] = get_memory_usage()
+    snapshot = tracemalloc.take_snapshot()
+    snapshot.dump(f"/tmp/memory_{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.trace")
+    
+def compare_snapshots(name1: str, name2: str):
+    """Compare two memory snapshots"""
+    if name1 in _memory_snapshots and name2 in _memory_snapshots:
+        delta = _memory_snapshots[name2] - _memory_snapshots[name1]
+        logger.info(f"Memory delta between {name1} and {name2}: {delta:.2f}MB")
+        return delta
+    return 0
+
+def track_memory(component: str, breakpoint_threshold_mb: Optional[float] = None):
     """
-    Enhanced decorator to track memory usage with object graph analysis
+    Enhanced decorator to track memory usage with breakpoint capability
     
     Args:
         component: Name of the component being tracked
-        threshold_mb: Memory growth threshold to trigger detailed analysis
+        breakpoint_threshold_mb: If set, will trigger breakpoint if memory delta exceeds this value
     """
     def decorator(func: Callable) -> Callable:
         if asyncio.iscoroutinefunction(func):
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs) -> Any:
-                start_mem = get_memory_usage()
-                start_time = datetime.now()
+                # Track operation counts
+                key = f"{component}.{func.__name__}"
+                _operation_counts[key] = _operation_counts.get(key, 0) + 1
+                count = _operation_counts[key]
                 
-                # Track object counts before
-                gc.collect()  # Force collection to get accurate counts
-                before_counts = objgraph.typestats()
+                # Take pre-snapshot
+                start_mem = get_memory_usage()
+                start_counts = get_object_counts()
+                
+                if count % 100 == 0:  # Periodic detailed logging
+                    logger.info(f"[{component}][{func.__name__}] Operation count: {count}")
+                    logger.info(f"Object counts before: {start_counts}")
                 
                 try:
                     result = await func(*args, **kwargs)
-                    
-                    # Memory analysis
                     end_mem = get_memory_usage()
                     delta = end_mem - start_mem
-                    duration = (datetime.now() - start_time).total_seconds()
                     
-                    # Object count analysis
-                    gc.collect()
-                    after_counts = objgraph.typestats()
-                    
-                    # Log basic info
-                    logger.info(
-                        f"[{component}][{func.__name__}] "
-                        f"Delta: {delta:+.2f}MB, "
-                        f"Duration: {duration:.2f}s"
-                    )
-                    
-                    # If significant memory growth, do detailed analysis
-                    if delta > threshold_mb:
-                        # Find objects that grew the most
-                        growth = {
-                            type_name: after_counts.get(type_name, 0) - before_counts.get(type_name, 0)
-                            for type_name in set(list(before_counts.keys()) + list(after_counts.keys()))
-                        }
-                        significant_growth = {k: v for k, v in growth.items() if v > 100}  # More than 100 new instances
+                    if count % 100 == 0:  # Periodic detailed logging
+                        end_counts = get_object_counts()
+                        logger.info(
+                            f"[{component}][{func.__name__}] "
+                            f"Completed #{count} - Delta: {delta:+.2f}MB, "
+                            f"Current: {end_mem:.2f}MB"
+                        )
+                        logger.info(f"Object counts after: {end_counts}")
                         
-                        if significant_growth:
-                            logger.warning(
-                                f"[{component}][{func.__name__}] Significant object growth:\n"
-                                + "\n".join(f"  {k}: +{v}" for k, v in significant_growth.items())
-                            )
-                            
-                            # Generate object graph for biggest offender
-                            if significant_growth:
-                                max_type = max(significant_growth.items(), key=lambda x: x[1])[0]
-                                logger.warning(f"Generating object graph for type: {max_type}")
-                                objgraph.show_chain(
-                                    objgraph.find_backref_chain(
-                                        objgraph.by_type(max_type)[0],
-                                        objgraph.is_proper_module
-                                    ),
-                                    filename=f"memory_leak_{component}_{func.__name__}_{start_time.strftime('%Y%m%d_%H%M%S')}.png"
-                                )
+                        # Log object differences
+                        for type_name, before_count in start_counts.items():
+                            after_count = end_counts.get(type_name, 0)
+                            if after_count != before_count:
+                                logger.info(f"Object delta for {type_name}: {after_count - before_count:+d}")
+                    
+                    # Check for memory threshold
+                    if breakpoint_threshold_mb and delta > breakpoint_threshold_mb:
+                        logger.warning(f"Memory threshold exceeded! Delta: {delta:.2f}MB")
+                        logger.warning("Top 10 growing objects:")
+                        growth = objgraph.get_leaking_objects()
+                        for obj in growth[:10]:
+                            logger.warning(f"{type(obj)}: {sys.getsizeof(obj)} bytes")
+                            # Get referrers
+                            refs = gc.get_referrers(obj)
+                            logger.warning(f"Referenced by {len(refs)} objects")
+                            for ref in refs[:3]:  # Show first 3 referrers
+                                logger.warning(f"  Referenced by: {type(ref)}")
                     
                     return result
                     
@@ -131,8 +106,8 @@ def track_memory(component: str, threshold_mb: float = 10.0):
                     delta = end_mem - start_mem
                     logger.error(
                         f"[{component}][{func.__name__}] "
-                        f"Failed - Delta: {delta:+.2f}MB\n"
-                        f"Error: {str(e)}"
+                        f"Failed - Delta: {delta:+.2f}MB, "
+                        f"Current: {end_mem:.2f}MB"
                     )
                     raise e
                 
@@ -140,23 +115,46 @@ def track_memory(component: str, threshold_mb: float = 10.0):
             @functools.wraps(func)
             def sync_wrapper(*args, **kwargs) -> Any:
                 # Similar implementation for sync functions
+                key = f"{component}.{func.__name__}"
+                _operation_counts[key] = _operation_counts.get(key, 0) + 1
+                count = _operation_counts[key]
+                
                 start_mem = get_memory_usage()
+                start_counts = get_object_counts() if count % 100 == 0 else {}
+                
                 try:
                     result = func(*args, **kwargs)
                     end_mem = get_memory_usage()
                     delta = end_mem - start_mem
-                    logger.info(
-                        f"[{component}][{func.__name__}] "
-                        f"Delta: {delta:+.2f}MB"
-                    )
+                    
+                    if count % 100 == 0:
+                        end_counts = get_object_counts()
+                        logger.info(
+                            f"[{component}][{func.__name__}] "
+                            f"Completed #{count} - Delta: {delta:+.2f}MB, "
+                            f"Current: {end_mem:.2f}MB"
+                        )
+                        
+                        for type_name, before_count in start_counts.items():
+                            after_count = end_counts.get(type_name, 0)
+                            if after_count != before_count:
+                                logger.info(f"Object delta for {type_name}: {after_count - before_count:+d}")
+                    
+                    if breakpoint_threshold_mb and delta > breakpoint_threshold_mb:
+                        logger.warning(f"Memory threshold exceeded! Delta: {delta:.2f}MB")
+                        growth = objgraph.get_leaking_objects()
+                        for obj in growth[:10]:
+                            logger.warning(f"{type(obj)}: {sys.getsizeof(obj)} bytes")
+                    
                     return result
+                    
                 except Exception as e:
                     end_mem = get_memory_usage()
                     delta = end_mem - start_mem
                     logger.error(
                         f"[{component}][{func.__name__}] "
-                        f"Failed - Delta: {delta:+.2f}MB\n"
-                        f"Error: {str(e)}"
+                        f"Failed - Delta: {delta:+.2f}MB, "
+                        f"Current: {end_mem:.2f}MB"
                     )
                     raise e
                 

@@ -14,8 +14,6 @@ from ..core.config import settings
 from ..core.logging import setup_logger
 from .ai import AIService
 from ..prompts.manager import PromptManager
-from ..utils.memory_tracker import track_memory, analyze_growth
-import gc
 
 logger = setup_logger(__name__)
 
@@ -28,7 +26,6 @@ class ConversationService:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    @track_memory("ConversationService")
     def __init__(self, db: AsyncSession = None):
         if not self._initialized and db is not None:
             self.AsyncSessionLocal = sessionmaker(
@@ -797,3 +794,25 @@ class ConversationService:
         db.add(conversation)
         await db.flush()
         return conversation.to_dict()
+
+    async def cleanup_demo_conversations(self, connection_id: str, db: AsyncSession):
+        """Clean up demo conversations for a connection when it disconnects"""
+        try:
+            # Find all demo conversations created during this connection
+            result = await db.execute(
+                select(Conversation).where(
+                    and_(
+                        Conversation.is_demo == True,
+                        Conversation.meta_data['connection_id'].astext == connection_id
+                    )
+                )
+            )
+            conversations = result.scalars().all()
+
+            # Delete conversations and their messages
+            for conversation in conversations:
+                await db.delete(conversation)
+            
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Error cleaning up demo conversations: {e}")

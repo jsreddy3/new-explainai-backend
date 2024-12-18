@@ -6,6 +6,7 @@ from ..core.logging import setup_logger
 from collections import defaultdict
 import weakref
 import gc
+import traceback
 
 logger = setup_logger(__name__)
 
@@ -98,6 +99,10 @@ class EventBus:
             await asyncio.sleep(10)  # Log every 10 seconds
     
     def print_event_refs(self):
+        # First clean up any dead references
+        global event_refs
+        event_refs = [ref for ref in event_refs if ref() is not None]
+        
         live_events = [ref() for ref in event_refs if ref() is not None]
         logger.info(f"Live events: {len(live_events)}")
         event_types = {}
@@ -112,11 +117,14 @@ class EventBus:
                     elif isinstance(ref, list):
                         for owner in gc.get_referrers(ref):
                             logger.info(f"Event {event.type} referenced by list in: {owner.__class__.__name__}.{getattr(owner, '__name__', '')}")
+                    elif isinstance(ref, asyncio.Queue):
+                        logger.info(f"Event {event.type} referenced by Queue with size: {ref.qsize()}")
                     elif hasattr(ref, '__class__'):
                         logger.info(f"Event {event.type} referenced directly by: {ref.__class__.__name__}")
         
         logger.info(f"Event counts by type: {event_types}")
-
+        logger.info(f"Total event_refs list size: {len(event_refs)}")
+    
     def initialize(self):
         """Initialize the event bus if not already initialized"""
         if not self._initialized:
@@ -133,35 +141,32 @@ class EventBus:
         """Process events from the queue"""
         while True:
             try:
+                logger.info(f"EventBus queue size before processing: {self._event_queue.qsize()}")
                 event = await self._event_queue.get()
-                logger.info(f"[EVENT BUS] Emitting event: type={event.type}, document_id={event.document_id}, connection_id={event.connection_id}")
-                logger.debug(f"[EVENT BUS] Event data: {event.data}")
+                logger.info(f"Processing event of type: {event.type}")
                 
-                # Process exact matches
-                if event.type in self.listeners:
-                    for listener in self.listeners[event.type]:
-                        try:
-                            logger.debug(f"EVENT BUS: Calling listener {listener.__name__} for event {event.type}")
-                            await listener(event)
-                        except Exception as e:
-                            logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
+                # Get all handlers for this event type
+                handlers = self.listeners.get(event.type, [])
                 
-                # Process wildcard listeners
-                if "*" in self.listeners:
-                    for listener in self.listeners["*"]:
-                        try:
-                            logger.debug(f"EVENT BUS: Calling wildcard listener {listener.__name__} for event {event.type}")
-                            await listener(event)
-                        except Exception as e:
-                            logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
-                
-                # After processing, check references for chat.token events
-                if event.type == "chat.token":
-                    self.print_event_refs()
+                # Process the event with each handler
+                for handler in handlers:
+                    try:
+                        await handler(event)
+                    except Exception as e:
+                        logger.error(f"Error in event handler for {event.type}: {str(e)}")
+                        traceback.print_exc()
                 
                 self._event_queue.task_done()
+                logger.info(f"EventBus queue size after processing: {self._event_queue.qsize()}")
+                
+                # Log memory info periodically
+                if self._event_queue.qsize() % 10 == 0:  # Every 10 events
+                    self.print_event_refs()
+                
             except Exception as e:
-                logger.error(f"EVENT BUS: Error processing event: {str(e)}")
+                logger.error(f"Error processing event: {str(e)}")
+                traceback.print_exc()
+                await asyncio.sleep(1)  # Avoid tight loop on errors
     
     def on(self, event_type: str, callback: Callable[[Event], Awaitable[None]]):
         """Register a listener for an event type"""

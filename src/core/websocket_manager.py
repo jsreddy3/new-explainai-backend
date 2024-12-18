@@ -39,15 +39,13 @@ class WebSocketManager:
             for scopes in self.connections.values() 
             for connections in scopes.values()
         )
-        logger.info(f"[WebSocketManager] New connection. Total active: {total_connections}")
-        logger.info(f"[WebSocketManager] Active queues: {len(self.event_queues)}")
+        # logger.info(f"[WebSocketManager] New connection. Total active: {total_connections}")
+        # logger.info(f"[WebSocketManager] Active queues: {len(self.event_queues)}")
 
-    @track_memory("WebSocketManager")
     async def register_listener(self, connection_id: str, event_type: str):
         if connection_id in self.connection_listeners:
             self.connection_listeners[connection_id].add(event_type)
 
-    @track_memory("WebSocketManager")
     async def dispatch_event(self, event: Event):
         """Route events to appropriate connections based on document_id and event type"""
         try:
@@ -94,8 +92,8 @@ class WebSocketManager:
             queue = self.event_queues[connection_id]
             # Access internal deque to check its state
             deque = queue._queue  # This is the internal deque of asyncio.Queue
-            logger.info(f"Queue {connection_id} internal deque size: {len(deque)}")
-            logger.info(f"Queue {connection_id} first few items types: {[type(item) for item in list(deque)[:5]]}")
+            # logger.info(f"Queue {connection_id} internal deque size: {len(deque)}")
+            # logger.info(f"Queue {connection_id} first few items types: {[type(item) for item in list(deque)[:5]]}")
             
             event = await queue.get()
             queue.task_done()  # Mark task as done immediately after get()

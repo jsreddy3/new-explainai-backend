@@ -13,12 +13,10 @@ logger = setup_logger(__name__)
 class AIService:
     MODEL = "gpt-4o"
     
-    @track_memory("AIService")
     def __init__(self):
         logger.info(f"Initialized AIService with model: {self.MODEL}")
         self.message_logger = MessageLogger()
         
-    @track_memory("AIService")
     async def chat(
         self,
         document_id: str,
@@ -111,7 +109,6 @@ class AIService:
             ))
             raise
             
-    @track_memory("AIService")
     async def generate_questions(
         self,
         document_id: str,
@@ -166,7 +163,6 @@ class AIService:
             ))
             raise
             
-    @track_memory("AIService")
     async def generate_summary(
         self,
         document_id: str,

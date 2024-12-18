@@ -197,7 +197,8 @@ class DocumentService:
                     } for chunk in chunks
                 ]
             }
-            logger.info(f"Successfully got document: {document_id} with response: {response}")
+            logger.info(f"Successfully got document: {document_id}.")
+            logger.debug(f"Successfully got document: {document_id} with response: {response}")
             return response
         except Exception as e:
             logger.error(f"Error getting document: {str(e)}")

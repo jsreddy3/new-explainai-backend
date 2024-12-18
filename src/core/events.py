@@ -4,8 +4,13 @@ from typing import Dict, List, Callable, Awaitable, Any, Optional
 import json
 from ..core.logging import setup_logger
 from collections import defaultdict
+import weakref
+import gc
 
 logger = setup_logger(__name__)
+
+# Global tracker for Event instances
+event_refs = []
 
 @dataclass
 class Event:
@@ -13,6 +18,19 @@ class Event:
     document_id: str
     data: Dict[str, Any]
     connection_id: Optional[str] = None
+
+    def __post_init__(self):
+        event_refs.append(weakref.ref(self))
+        
+    def get_referrers(self):
+        for ref in gc.get_referrers(self):
+            if isinstance(ref, dict):
+                # Find the owner of this dict
+                for owner in gc.get_referrers(ref):
+                    logger.info(f"Event {self.type} referenced by: {owner.__class__.__name__}")
+            elif isinstance(ref, list):
+                for owner in gc.get_referrers(ref):
+                    logger.info(f"Event {self.type} referenced in list owned by: {owner.__class__.__name__}")
 
     def dict(self):
         """Convert Event to a dictionary."""
@@ -68,6 +86,13 @@ class EventBus:
             
             await asyncio.sleep(10)  # Log every 10 seconds
     
+    def print_event_refs(self):
+        live_events = [ref() for ref in event_refs if ref() is not None]
+        logger.info(f"Live events: {len(live_events)}")
+        for event in live_events:
+            if event:  # Check if event still exists
+                event.get_referrers()
+
     def initialize(self):
         """Initialize the event bus if not already initialized"""
         if not self._initialized:
@@ -92,7 +117,6 @@ class EventBus:
                 if event.type in self.listeners:
                     for listener in self.listeners[event.type]:
                         try:
-                            # logger.info(f"[EVENT BUS] Registering handler for event type: {event.type}")
                             logger.debug(f"EVENT BUS: Calling listener {listener.__name__} for event {event.type}")
                             await listener(event)
                         except Exception as e:
@@ -102,11 +126,14 @@ class EventBus:
                 if "*" in self.listeners:
                     for listener in self.listeners["*"]:
                         try:
-                            # logger.info(f"[EVENT BUS] Registering handler for event type: *")
                             logger.debug(f"EVENT BUS: Calling wildcard listener {listener.__name__} for event {event.type}")
                             await listener(event)
                         except Exception as e:
                             logger.error(f"[EVENT BUS] Error in event handler for {event.type}: {e}")
+                
+                # After processing, check references for chat.token events
+                if event.type == "chat.token":
+                    self.print_event_refs()
                 
                 self._event_queue.task_done()
             except Exception as e:

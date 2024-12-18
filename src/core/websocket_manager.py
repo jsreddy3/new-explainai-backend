@@ -87,7 +87,16 @@ class WebSocketManager:
     async def get_events(self, connection_id: str) -> Event:
         """Get events for a specific connection"""
         if connection_id in self.event_queues:
-            return await self.event_queues[connection_id].get()
+            # Add diagnostics about queue state
+            queue = self.event_queues[connection_id]
+            # Access internal deque to check its state
+            deque = queue._queue  # This is the internal deque of asyncio.Queue
+            logger.info(f"Queue {connection_id} internal deque size: {len(deque)}")
+            logger.info(f"Queue {connection_id} first few items types: {[type(item) for item in list(deque)[:5]]}")
+            
+            event = await queue.get()
+            # Don't call task_done() yet to see if this is our issue
+            return event
         raise ValueError(f"No queue found for connection {connection_id}")
 
     @track_memory("WebSocketManager")

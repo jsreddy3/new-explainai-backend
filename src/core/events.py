@@ -21,16 +21,27 @@ class Event:
 
     def __post_init__(self):
         event_refs.append(weakref.ref(self))
+        # Track when this event was created
+        self._created_at = asyncio.get_event_loop().time()
+        logger.info(f"Created event {self.type} at {self._created_at}")
         
     def get_referrers(self):
+        current_time = asyncio.get_event_loop().time()
+        age = current_time - getattr(self, '_created_at', current_time)
+        logger.info(f"Event {self.type} age: {age:.2f} seconds")
+        
         for ref in gc.get_referrers(self):
             if isinstance(ref, dict):
-                # Find the owner of this dict
                 for owner in gc.get_referrers(ref):
-                    logger.info(f"Event {self.type} referenced by: {owner.__class__.__name__}")
+                    logger.info(f"Event {self.type} (age {age:.2f}s) referenced by dict in: {owner.__class__.__name__}.{getattr(owner, '__name__', '')}")
             elif isinstance(ref, list):
                 for owner in gc.get_referrers(ref):
-                    logger.info(f"Event {self.type} referenced in list owned by: {owner.__class__.__name__}")
+                    logger.info(f"Event {self.type} (age {age:.2f}s) referenced by list in: {owner.__class__.__name__}.{getattr(owner, '__name__', '')}")
+            elif hasattr(ref, '__class__'):
+                if isinstance(ref, asyncio.Queue):
+                    logger.info(f"Event {self.type} (age {age:.2f}s) held in Queue with size: {ref.qsize()}")
+                else:
+                    logger.info(f"Event {self.type} (age {age:.2f}s) referenced directly by: {ref.__class__.__name__}")
 
     def dict(self):
         """Convert Event to a dictionary."""

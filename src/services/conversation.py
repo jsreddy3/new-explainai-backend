@@ -455,17 +455,21 @@ class ConversationService:
             
             result = await db.execute(stmt)
             conversations = result.scalars().all()
-            
-            # Convert conversations to dict format
-            conversations_data = {
-                str(conv.id): {
+
+            conversations_data = {}
+            for conv in conversations:
+                conv_data = {
                     "document_id": str(conv.document_id),
                     "chunk_id": conv.chunk_id,
                     "created_at": conv.created_at.isoformat(),
-                    "highlight_text": conv.meta_data.get("highlight_text") if conv.meta_data else ""
+                    "highlight_text": conv.meta_data.get("highlight_text", "") if conv.meta_data else ""
                 }
-                for conv in conversations
-            }
+
+                # Add highlight_range if available in meta_data
+                if conv.meta_data and "highlight_range" in conv.meta_data:
+                    conv_data["highlight_range"] = conv.meta_data["highlight_range"]
+
+                conversations_data[str(conv.id)] = conv_data
             
             # Emit success event
             await event_bus.emit(Event(

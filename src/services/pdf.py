@@ -36,7 +36,7 @@ Rules:
 4. Do not add or remove content
 5. Do not add interpretations or summaries
 6. Keep all original line breaks that indicate structural elements (like lists or titles)
-7. The OCR may have split every word into a separate line. If so, join them back together properly.
+7. The OCR may have split every word into a separate line. If so, join them back together properly
 8. Remove artifacts like page numbers or header/footer repetitions
 
 Output only the cleaned text, with no explanations or metadata.

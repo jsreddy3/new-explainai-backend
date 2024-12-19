@@ -27,14 +27,37 @@ CHUNK_SIZE = 5000  # Characters per chunk
 LOG_TRUNCATION_LENGTH = 500  # For truncating long log messages
 
 # System prompt for PDF processing
-SYSTEM_PROMPT = """You are an AI assistant specialized in processing and analyzing PDF documents.
-Your task is to:
-1. Understand and extract key information from the document
-2. Maintain the original meaning while improving readability
-3. Organize the content in a clear, structured format
-4. Preserve important technical details and terminology
-5. Break down complex paragraphs into more digestible units
-6. Ensure the text flows naturally between processed chunks"""
+SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up OCR-extracted text from PDFs while preserving the exact structure and meaning of the original document.
+
+Rules:
+1. Maintain all paragraph breaks exactly as they appear in the original
+2. Fix OCR errors (like misrecognized characters, unwanted hyphens)
+3. Preserve all meaningful whitespace
+4. Do not add or remove content
+5. Do not add interpretations or summaries
+6. Keep all original line breaks that indicate structural elements (like lists or titles)
+7. Remove artifacts like page numbers or header/footer repetitions
+
+Output only the cleaned text, with no explanations or metadata.
+
+Example input:
+"L0rem ips-
+um d0lor sit amet, consectetur adipiscing elit.
+
+Se d d0 eius- 
+mod tempor incididunt ut lab0re.
+Page 2
+
+Ut enim ad min-
+im veniam, quis."
+
+Example output:
+"Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
+Sed do eiusmod tempor incididunt ut labore.
+
+Ut enim ad minim veniam, quis."
+"""
 
 class PDFResponse(BaseModel):
     success: bool

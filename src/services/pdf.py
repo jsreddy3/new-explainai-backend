@@ -208,6 +208,10 @@ class PDFService:
             
             # Process the text with progress tracking
             processed_text, chunks = await self.process_pdf_text(text, user_id, file.filename)
+
+            # Check for chunk limit
+            if len(chunks) > 8:
+                raise HTTPException(status_code=400, detail="Document has too many chunks (max of 8 chunks). Please upload a shorter document.")
             
             return PDFResponse(
                 success=True,

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
@@ -341,3 +341,71 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         await db.commit()
+
+@router.delete("/documents/{document_id}")
+async def delete_document(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, str]:
+    """Delete a document if owned by the current user
+    
+    Args:
+        document_id (str): The ID of the document to delete
+        current_user (User): The authenticated user
+        db (AsyncSession): Database session
+    
+    Returns:
+        Dict[str, str]: {"status": "success"}
+    
+    Raises:
+        HTTPException: If document not found or user not authorized
+    """
+    try:
+        # Get document with owner info
+        query = select(Document).where(Document.id == document_id)
+        result = await db.execute(query)
+        document = result.scalar_one_or_none()
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+            
+        # Check ownership
+        if document.owner_id != str(current_user.id):
+            raise HTTPException(
+                status_code=403, 
+                detail="Not authorized to delete this document"
+            )
+            
+        # Delete associated conversations first (cascading delete for messages)
+        await db.execute(
+            delete(Conversation).where(Conversation.document_id == document_id)
+        )
+        
+        # Delete document chunks
+        await db.execute(
+            delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+        )
+        
+        # Delete the document
+        await db.execute(
+            delete(Document).where(Document.id == document_id)
+        )
+        
+        # Emit document deletion event
+        await event_bus.emit(Event(
+            type="document.deleted",
+            document_id=document_id,
+            data={
+                "document_id": document_id,
+                "owner_id": str(current_user.id)
+            }
+        ))
+        
+        await db.commit()
+        return {"status": "success"}
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Document deletion error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

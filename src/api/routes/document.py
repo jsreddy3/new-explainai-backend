@@ -239,39 +239,31 @@ async def list_example_documents(
         for doc in example_docs
     ]
 
+@router.get("/documents/upload-progress/{filename}")
+async def get_upload_progress(
+    filename: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get the progress of a document being uploaded"""
+    tracking_key = f"{current_user.id}:{filename}"
+    progress = pdf_service.upload_progress.get(tracking_key, {})
+    
+    return {
+        "filename": filename,
+        "total_chunks": progress.get("total", 0),
+        "processed_chunks": progress.get("processed", 0),
+        "is_complete": tracking_key not in pdf_service.upload_progress
+    }
+
 @router.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    """Upload and process a document
-    
-    Args:
-        file (UploadFile): The PDF file to upload
-        current_user (User): The authenticated user
-        db (AsyncSession): Database session
-    
-    Returns:
-        Dict[str, Any]: {
-            "document_id": str,
-            "current_chunk": {
-                "id": str,
-                "content": str,
-                "sequence": int,
-                "navigation": {
-                    "prev": str | None,
-                    "next": str | None
-                }
-            }
-        }
-    
-    Raises:
-        HTTPException: If document processing fails
-    """
     try:
-        # Process the PDF
-        result = await pdf_service.process_pdf(file)
+        # Process the PDF with progress tracking
+        result = await pdf_service.process_pdf_text(file, str(current_user.id), file.filename)
         if not result.success:
             logger.error(f"PDF processing failed: {result.text}")
             raise HTTPException(status_code=400, detail=result.text)

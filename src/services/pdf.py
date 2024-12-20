@@ -70,7 +70,8 @@ class PDFResponse(BaseModel):
 class PDFService:
     def __init__(self):
         self.max_file_size = MAX_FILE_SIZE
-        
+        self.upload_progress = {}  # {user_id:filename -> {total: int, processed: int}}
+
     async def validate_pdf_file(self, file: UploadFile) -> None:
         """Validate that the uploaded file is a PDF and within size limits"""
         if not file.filename.lower().endswith('.pdf'):
@@ -159,20 +160,39 @@ class PDFService:
                 detail=f"Error processing PDF: {str(e)}"
             )
 
-    async def process_pdf_text(self, text: str) -> Tuple[str, List[str]]:
+    async def process_pdf_text(self, text: str, user_id: str = None, filename: str = None) -> Tuple[str, List[str]]:
         """Process PDF text in chunks and return both full text and individual chunks"""
         chunks = self.chunk_text(text)
         processed_chunks = []
         conversation_history = None
         
+        # Initialize progress tracking if we have user_id and filename
+        if user_id and filename:
+            tracking_key = f"{user_id}:{filename}"
+            self.upload_progress[tracking_key] = {
+                "total": len(chunks),
+                "processed": 0
+            }
+        
         for i, chunk in enumerate(chunks):
-            logger.info(f"Processing chunk {i+1}/{len(chunks)}")
             try:
                 processed_chunk, conversation_history = await self.process_chunk(chunk, i, conversation_history)
                 processed_chunks.append(processed_chunk)
+                if user_id and filename:
+                    tracking_key = f"{user_id}:{filename}"
+                    self.upload_progress[tracking_key]["processed"] = i + 1
             except Exception as e:
                 logger.error(f"Error processing chunk {i+1}: {str(e)}")
-                processed_chunks.append(chunk)  # Fall back to original chunk if processing fails
+                processed_chunks.append(chunk)
+                if user_id and filename:
+                    tracking_key = f"{user_id}:{filename}"
+                    self.upload_progress[tracking_key]["processed"] = i + 1
+        
+        # Cleanup tracking after completion
+        if user_id and filename:
+            tracking_key = f"{user_id}:{filename}"
+            if tracking_key in self.upload_progress:
+                del self.upload_progress[tracking_key]
         
         # Combine all processed chunks
         full_text = "\n".join(processed_chunks)

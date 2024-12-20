@@ -211,7 +211,7 @@ class PDFService:
 
             # Check for chunk limit
             if len(chunks) > 8:
-                raise HTTPException(status_code=400, detail="Document has too many chunks (max of 8 chunks). Please upload a shorter document.")
+                raise HTTPException(status_code=400, detail=f"Document has too many chunks ({len(chunks)} chunks, max of 8 chunks). Please upload a shorter document.")
             
             return PDFResponse(
                 success=True,

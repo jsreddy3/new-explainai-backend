@@ -7,7 +7,7 @@ import json
 import logging
 
 from src.db.session import get_db
-from src.services.auth import get_current_user
+from src.api.routes.auth import get_current_user
 from src.services import pdf_service
 from src.models.database import Document, DocumentChunk, User, Conversation, Message
 from src.models.events import Event, event_bus

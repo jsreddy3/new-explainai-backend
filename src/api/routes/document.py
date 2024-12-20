@@ -4,15 +4,23 @@ from sqlalchemy import select, delete
 from typing import Dict, Optional, Callable, Awaitable, Any
 import asyncio
 import json
-import logging
+import uuid
 
 from src.db.session import get_db
-from src.api.routes.auth import get_current_user
-from src.services import pdf_service
-from src.models.database import Document, DocumentChunk, User, Conversation, Message
-from src.models.events import Event, event_bus
+from src.services.document import DocumentService
+from src.services.ai import AIService
+from src.services.pdf import PDFService
+from src.core.events import event_bus, Event
+from src.core.logging import setup_logger
+from src.core.websocket_manager import manager
+from src.models.database import Document, DocumentChunk
+from ..routes.auth import get_current_user, get_current_user_or_none, User
+from ...services.auth import AuthService
+from ...core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
+pdf_service = PDFService()
+router = APIRouter()
 
 class WebSocketHandler:
     def __init__(self, websocket: WebSocket, document_id: str, user: Optional[User], db: AsyncSession):
@@ -184,8 +192,6 @@ class WebSocketHandler:
         
         if self.connection_id:
             await manager.disconnect(self.connection_id, self.document_id, "document")
-
-router = APIRouter()
 
 @router.websocket("/documents/stream/{document_id}")
 async def document_stream(

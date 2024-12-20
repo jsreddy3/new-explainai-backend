@@ -263,7 +263,7 @@ async def upload_document(
 ) -> Dict[str, Any]:
     try:
         # Process the PDF with progress tracking
-        result = await pdf_service.process_pdf_text(file, str(current_user.id), file.filename)
+        result = await pdf_service.process_pdf(file, str(current_user.id))
         if not result.success:
             logger.error(f"PDF processing failed: {result.text}")
             raise HTTPException(status_code=400, detail=result.text)
@@ -272,8 +272,8 @@ async def upload_document(
         document = Document(
             title=result.display,
             content=result.text,
-            owner_id=str(current_user.id),  # Associate with user
-            status="ready",  # Document is ready immediately since we process synchronously
+            owner_id=str(current_user.id),
+            status="ready",
             meta_data={
                 "topic_key": result.topicKey,
                 "chunks_count": len(result.chunks)

@@ -198,16 +198,16 @@ class PDFService:
         full_text = "\n".join(processed_chunks)
         return full_text, processed_chunks
 
-    async def process_pdf(self, file: UploadFile, max_pages: int = 50) -> PDFResponse:
+    async def process_pdf(self, file: UploadFile, user_id: str = None) -> PDFResponse:
         """Process PDF file and return structured response"""
         await self.validate_pdf_file(file)
         
         try:
             # Extract text and title
-            text, title = await self.extract_text_from_pdf(file, max_pages)
+            text, title = await self.extract_text_from_pdf(file)
             
-            # Process the text
-            processed_text, chunks = await self.process_pdf_text(text)
+            # Process the text with progress tracking
+            processed_text, chunks = await self.process_pdf_text(text, user_id, file.filename)
             
             return PDFResponse(
                 success=True,
@@ -219,7 +219,11 @@ class PDFService:
             
         except Exception as e:
             logger.error(f"Error processing PDF: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
+            if user_id and file.filename:
+                tracking_key = f"{user_id}:{file.filename}"
+                if tracking_key in self.upload_progress:
+                    del self.upload_progress[tracking_key]
+            raise e
 
     async def process_pdf_stream(self, file: UploadFile, max_pages: int = 50):
         """Process PDF file and yield chunks as they're processed"""

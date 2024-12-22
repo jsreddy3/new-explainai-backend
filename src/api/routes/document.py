@@ -272,11 +272,10 @@ async def upload_document(
             user = result_db.scalar_one()
             old_cost = user.user_cost
             user.user_cost += float(cost)
-            await db.commit()
+            await db.flush()  # Use flush instead of commit here
             
             logger.info(f"PDF Upload updated user {current_user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
         except Exception as e:
-            await db.rollback()
             logger.error(f"Failed to update user cost: {e}")
 
         if not result.success:

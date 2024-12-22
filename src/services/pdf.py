@@ -10,6 +10,7 @@ from pydantic import BaseModel
 import PyPDF2
 import logging
 import nest_asyncio
+import asyncio
 import yaml
 
 from src.core.config import Settings
@@ -23,7 +24,7 @@ settings = Settings()
 
 # Constants
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-CHUNK_SIZE = 5000  # Characters per chunk
+CHUNK_SIZE = 2500  # Characters per chunk
 LOG_TRUNCATION_LENGTH = 500  # For truncating long log messages
 
 # System prompt for PDF processing
@@ -161,42 +162,45 @@ class PDFService:
             )
 
     async def process_pdf_text(self, text: str, user_id: str = None, filename: str = None) -> Tuple[str, List[str]]:
-        """Process PDF text in chunks and return both full text and individual chunks"""
-        chunks = self.chunk_text(text)
-        processed_chunks = []
-        conversation_history = None
-        
-        # Initialize progress tracking if we have user_id and filename
-        if user_id and filename:
-            tracking_key = f"{user_id}:{filename}"
-            self.upload_progress[tracking_key] = {
-                "total": len(chunks),
-                "processed": 0
-            }
-        
-        for i, chunk in enumerate(chunks):
-            try:
-                processed_chunk, conversation_history = await self.process_chunk(chunk, i, conversation_history)
-                processed_chunks.append(processed_chunk)
-                if user_id and filename:
-                    tracking_key = f"{user_id}:{filename}"
-                    self.upload_progress[tracking_key]["processed"] = i + 1
-            except Exception as e:
-                logger.error(f"Error processing chunk {i+1}: {str(e)}")
-                processed_chunks.append(chunk)
-                if user_id and filename:
-                    tracking_key = f"{user_id}:{filename}"
-                    self.upload_progress[tracking_key]["processed"] = i + 1
-        
-        # Cleanup tracking after completion
-        if user_id and filename:
-            tracking_key = f"{user_id}:{filename}"
-            if tracking_key in self.upload_progress:
-                del self.upload_progress[tracking_key]
-        
-        # Combine all processed chunks
-        full_text = "\n".join(processed_chunks)
-        return full_text, processed_chunks
+      """Process PDF text with chunks running in parallel"""
+      chunks = self.chunk_text(text)
+      conversation_history = [{"role": "system", "content": SYSTEM_PROMPT}]
+      
+      # Initialize progress tracking
+      if user_id and filename:
+          tracking_key = f"{user_id}:{filename}"
+          self.upload_progress[tracking_key] = {
+              "total": len(chunks),
+              "processed": 0
+          }
+      
+      # Create tasks for all chunks to process them in parallel
+      tasks = []
+      for i, chunk in enumerate(chunks):
+          tasks.append(self.process_chunk(chunk, i, conversation_history.copy()))
+      
+      try:
+          # Process all chunks concurrently
+          results = await asyncio.gather(*tasks)
+          
+          # Unpack results and update progress
+          processed_chunks = []
+          for i, (processed_chunk, _) in enumerate(results):
+              processed_chunks.append(processed_chunk)
+              if user_id and filename:
+                  tracking_key = f"{user_id}:{filename}"
+                  self.upload_progress[tracking_key]["processed"] = i + 1
+          
+      finally:
+          # Cleanup tracking
+          if user_id and filename:
+              tracking_key = f"{user_id}:{filename}"
+              if tracking_key in self.upload_progress:
+                  del self.upload_progress[tracking_key]
+      
+      # Combine all processed chunks
+      full_text = "\n".join(processed_chunks)
+      return full_text, processed_chunks
 
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> PDFResponse:
         """Process PDF file and return structured response"""
@@ -210,8 +214,8 @@ class PDFService:
             processed_text, chunks = await self.process_pdf_text(text, user_id, file.filename)
 
             # Check for chunk limit
-            if len(chunks) > 8:
-                raise HTTPException(status_code=400, detail=f"Document has too many chunks ({len(chunks)} chunks, max of 8 chunks). Please upload a shorter document.")
+            if len(chunks) > 16:
+                raise HTTPException(status_code=400, detail=f"Document has too many chunks ({len(chunks)} chunks, max of 16 chunks). Please upload a shorter document.")
             
             return PDFResponse(
                 success=True,
@@ -228,48 +232,3 @@ class PDFService:
                 if tracking_key in self.upload_progress:
                     del self.upload_progress[tracking_key]
             raise e
-
-    async def process_pdf_stream(self, file: UploadFile, max_pages: int = 50):
-        """Process PDF file and yield chunks as they're processed"""
-        try:
-            await self.validate_pdf_file(file)
-            
-            # Extract text and title
-            text, title = await self.extract_text_from_pdf(file, max_pages)
-            
-            # Split into chunks
-            chunks = self.chunk_text(text)
-            conversation_history = None
-            
-            for i, chunk in enumerate(chunks):
-                try:
-                    # Process chunk
-                    processed_chunk, conversation_history = await self.process_chunk(chunk, i, conversation_history)
-                    
-                    # Yield chunk response
-                    yield {
-                        "success": True,
-                        "topicKey": f"pdf-{title}-{hash(str(processed_chunk))%10000:04d}",
-                        "display": title,
-                        "text": processed_chunk,
-                        "chunk_number": i,
-                        "total_chunks": len(chunks)
-                    }
-                    
-                except Exception as e:
-                    logger.error(f"Error processing chunk {i}: {str(e)}")
-                    yield {
-                        "success": False,
-                        "error": f"Error processing chunk {i}: {str(e)}",
-                        "chunk_number": i,
-                        "total_chunks": len(chunks)
-                    }
-                    
-        except Exception as e:
-            logger.error(f"Error in PDF stream processing: {str(e)}")
-            yield {
-                "success": False,
-                "error": f"Error in PDF stream processing: {str(e)}",
-                "chunk_number": 0,
-                "total_chunks": 0
-            }

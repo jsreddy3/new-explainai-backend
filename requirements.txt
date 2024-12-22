@@ -11,6 +11,7 @@ aiosqlite==0.20.0
 alembic==1.12.1
 # Add these lines to requirements.txt:
 psycopg[binary]==3.1.18  # Async PostgreSQL driver
+psycopg2-binary==2.9.9  # Keep this alongside your existing psycopg[binary]
 asyncpg==0.29.0
 
 # PDF Processing

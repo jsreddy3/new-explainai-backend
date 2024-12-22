@@ -264,14 +264,20 @@ async def upload_document(
     try:
         # Process the PDF with progress tracking
         result, cost = await pdf_service.process_pdf(file, str(current_user.id))
-
-        stmt = select(User).where(User.id == current_user.id)
-        result = await db.execute(stmt)
-        user = result.scalar_one()
-        old_cost = user.user_cost
-        user.user_cost += float(cost)  # Ensure we're adding as float
-        await db.commit()
-        logger.info(f"PDF Upload updated user {current_user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+        
+        # Update user cost using proper async SQLAlchemy patterns
+        try:
+            async with db.begin():  # This creates the proper async context
+                stmt = select(User).where(User.id == current_user.id)
+                result_db = await db.execute(stmt)
+                user = result_db.scalar_one()
+                old_cost = user.user_cost
+                user.user_cost += float(cost)
+                # No need for explicit commit when using async with
+            
+            logger.info(f"PDF Upload updated user {current_user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+        except Exception as e:
+            logger.error(f"Failed to update user cost: {e}")
 
         if not result.success:
             logger.error(f"PDF processing failed: {result.text}")

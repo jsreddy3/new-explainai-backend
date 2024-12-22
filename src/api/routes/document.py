@@ -263,7 +263,16 @@ async def upload_document(
 ) -> Dict[str, Any]:
     try:
         # Process the PDF with progress tracking
-        result = await pdf_service.process_pdf(file, str(current_user.id))
+        result, cost = await pdf_service.process_pdf(file, str(current_user.id))
+
+        stmt = select(User).where(User.id == current_user.id)
+        result = await db.execute(stmt)
+        user = result.scalar_one()
+        old_cost = user.user_cost
+        user.user_cost += float(cost)  # Ensure we're adding as float
+        await db.commit()
+        logger.info(f"PDF Upload updated user {current_user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+
         if not result.success:
             logger.error(f"PDF processing failed: {result.text}")
             raise HTTPException(status_code=400, detail=result.text)

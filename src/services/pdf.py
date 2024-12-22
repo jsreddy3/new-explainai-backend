@@ -115,14 +115,14 @@ class PDFService:
             # Add assistant's response to conversation history
             messages.append({"role": "assistant", "content": processed_text})
             
-            return self.clean_llm_output(processed_text), messages
+            return self.clean_llm_output(processed_text), messages, litellm.completion_cost(response)
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}", extra={
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "chunk_number": chunk_num
             })
-            return chunk, messages  # Fallback to original text if processing fails
+            return chunk, messages, 0  # Fallback to original text if processing fails
 
     async def extract_text_from_pdf(self, file: UploadFile, max_pages: int = 50) -> Tuple[str, str]:
         """Extract text and title from PDF file"""
@@ -182,14 +182,16 @@ class PDFService:
       try:
           # Process all chunks concurrently
           results = await asyncio.gather(*tasks)
+          total_cost = 0
           
           # Unpack results and update progress
           processed_chunks = []
-          for i, (processed_chunk, _) in enumerate(results):
+          for i, (processed_chunk, _, cost) in enumerate(results):
               processed_chunks.append(processed_chunk)
               if user_id and filename:
                   tracking_key = f"{user_id}:{filename}"
                   self.upload_progress[tracking_key]["processed"] = i + 1
+                  total_cost += cost
           
       finally:
           # Cleanup tracking
@@ -200,7 +202,7 @@ class PDFService:
       
       # Combine all processed chunks
       full_text = "\n".join(processed_chunks)
-      return full_text, processed_chunks
+      return full_text, processed_chunks, total_cost
 
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> PDFResponse:
         """Process PDF file and return structured response"""
@@ -211,7 +213,7 @@ class PDFService:
             text, title = await self.extract_text_from_pdf(file)
             
             # Process the text with progress tracking
-            processed_text, chunks = await self.process_pdf_text(text, user_id, file.filename)
+            processed_text, chunks, cost = await self.process_pdf_text(text, user_id, file.filename)
 
             # Check for chunk limit
             if len(chunks) > 16:
@@ -223,7 +225,7 @@ class PDFService:
                 display=title,
                 text=processed_text,
                 chunks=chunks
-            )
+            ), cost
             
         except Exception as e:
             logger.error(f"Error processing PDF: {str(e)}")

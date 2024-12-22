@@ -137,6 +137,31 @@ async def get_user_documents(
         for doc in documents
     ]
 
+@router.get("/auth/me/cost")
+async def get_user_cost(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get accumulated cost for the current user"""
+    try:
+        # Get fresh user data from database to ensure we have latest cost
+        result = await db.execute(
+            select(User).where(User.id == current_user.id)
+        )
+        user = result.scalar_one()
+        
+        return {
+            "user_id": str(user.id),
+            "total_cost": float(user.user_cost),
+            "formatted_cost": f"${float(user.user_cost):.10f}"
+        }
+    except Exception as e:
+        logger.error(f"Failed to get user cost: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve user cost information"
+        )
+
 @router.get("/auth/config")
 async def get_auth_config():
     """Get authentication configuration for frontend"""

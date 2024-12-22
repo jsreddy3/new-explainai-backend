@@ -126,20 +126,22 @@ class WebSocketHandler:
     async def handle_event(self, event: Event):
         """Handle different types of events"""
         try:
+            # Only attempt to update user cost if there's an authenticated user and cost data
+            if "cost" in event.data and self.user is not None:
+                async with AsyncSession(self.db.bind) as session:
+                    try:
+                        stmt = select(User).where(User.id == self.user.id)
+                        result = await session.execute(stmt)
+                        user = result.scalar_one()
+                        old_cost = user.user_cost
+                        user.user_cost += float(event.data["cost"])
+                        await session.commit()
+                        logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+                    except Exception as e:
+                        logger.error(f"Failed to update user cost: {e}")
+                        await session.rollback()
+
             # Send the event data to the WebSocket client
-            if "cost" in event.data:
-              try:
-                  logger.info("Updating user cost for user: %s", self.user.id)
-                  stmt = select(User).where(User.id == self.user.id)
-                  result = await self.db.execute(stmt)
-                  user = result.scalar_one()
-                  old_cost = user.user_cost
-                  user.user_cost += float(event.data["cost"])  # Ensure we're adding as float
-                  await self.db.commit()
-                  logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
-              except Exception as e:
-                  logger.error(f"Failed to update user cost: {e}")
-                  await self.db.rollback()
             await self.websocket.send_json({
                 "type": event.type,
                 "data": event.data

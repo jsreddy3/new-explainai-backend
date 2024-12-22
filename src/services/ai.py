@@ -2,7 +2,7 @@
 
 from typing import Dict, List, Optional, AsyncGenerator, Tuple
 import logging
-from litellm import acompletion
+from litellm import acompletion, completion_cost
 from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
 from src.utils.message_logger import MessageLogger
@@ -79,7 +79,7 @@ class AIService:
                 data={"response": response}
             ))
             
-            return response
+            return response, completion_cost(completion)
             
         except Exception as e:
             logger.error(f"Error in chat: {str(e)}")
@@ -148,7 +148,7 @@ class AIService:
                 }
             ))
             # logger.info("Generated questions: " + str(questions))
-            return questions
+            return questions, completion_cost(response)
             
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
@@ -198,7 +198,7 @@ class AIService:
                 }
             ))
             # logger.info("Generated summary: " + summary)
-            return summary
+            return summary, completion_cost(response)
             
         except Exception as e:
             logger.error(f"Error generating summary: {str(e)}")

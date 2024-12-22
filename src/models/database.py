@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text, Boolean
+from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text, Boolean, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSON  
 from datetime import datetime
@@ -20,6 +20,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     meta_data = Column(JSON, nullable=True)
+    user_cost = Column(Float, default=0.0)
 
     # Add relationship to documents
     documents = relationship("Document", back_populates="owner")

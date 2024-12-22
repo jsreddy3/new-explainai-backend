@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_demo_flag_to_conversations'
-down_revision = None
+down_revision = 'add_user_cost'  # points to user cost
 branch_labels = None
 depends_on = None
 

@@ -237,7 +237,7 @@ class ConversationService:
                 messages[-1]["content"] = processed_content
             logger.info("Messages: {messages}")
             # 5. Send entire messages array to AI service
-            response = await self.ai_service.chat(
+            response, cost = await self.ai_service.chat(
                 document_id,
                 conversation_id,
                 messages=messages,
@@ -258,7 +258,7 @@ class ConversationService:
                 type="conversation.message.send.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
-                data={"message": response, "conversation_id": str(conversation["id"])}
+                data={"message": response, "conversation_id": str(conversation["id"]), "cost": cost}
             ))
                 
         except Exception as e:
@@ -303,7 +303,7 @@ class ConversationService:
                     previous_questions=previous_questions
                 )
             
-            questions = await self.ai_service.generate_questions(
+            questions, cost = await self.ai_service.generate_questions(
                 document_id=conversation["document_id"],
                 conversation_id=conversation_id,
                 system_prompt=system_prompt,
@@ -328,7 +328,8 @@ class ConversationService:
                 connection_id=event.connection_id,
                 data={
                     "conversation_id": conversation_id,
-                    "questions": [q.strip() for q in questions[:count]]
+                    "questions": [q.strip() for q in questions[:count]],
+                    "cost": cost
                 }
             ))
             
@@ -362,7 +363,7 @@ class ConversationService:
                 conversation_history=conversation_history
             )
             
-            summary = await self.ai_service.generate_summary(
+            summary, cost = await self.ai_service.generate_summary(
                 document_id=highlight_conversation["document_id"],
                 conversation_id=highlight_conversation_id,
                 system_prompt=system_prompt,
@@ -401,7 +402,8 @@ class ConversationService:
                 data={
                     "main_conversation_id": main_conversation_id,
                     "highlight_conversation_id": highlight_conversation_id,
-                    "summary": summary
+                    "summary": summary,
+                    "cost": cost
                 }
             ))
             

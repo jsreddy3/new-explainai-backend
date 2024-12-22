@@ -127,6 +127,18 @@ class WebSocketHandler:
         """Handle different types of events"""
         try:
             # Send the event data to the WebSocket client
+            if "cost" in event.data:
+              try:
+                  stmt = select(User).where(User.id == self.user.id)
+                  result = await self.db.execute(stmt)
+                  user = result.scalar_one()
+                  old_cost = user.user_cost
+                  user.user_cost += float(event.data["cost"])  # Ensure we're adding as float
+                  await self.db.commit()
+                  logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+              except Exception as e:
+                  logger.error(f"Failed to update user cost: {e}")
+                  await self.db.rollback()
             await self.websocket.send_json({
                 "type": event.type,
                 "data": event.data

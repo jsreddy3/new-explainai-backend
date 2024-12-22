@@ -129,6 +129,7 @@ class WebSocketHandler:
             # Send the event data to the WebSocket client
             if "cost" in event.data:
               try:
+                  logger.info("Updating user cost for user: %s", self.user.id)
                   stmt = select(User).where(User.id == self.user.id)
                   result = await self.db.execute(stmt)
                   user = result.scalar_one()
@@ -388,6 +389,7 @@ async def conversation_stream(
         # Get user (might be None for example documents)
         auth_service = AuthService(db)
         user = await get_current_user_or_none(token, document_id, auth_service)
+        logger.info("User: %s", user)
 
         handler = WebSocketHandler(websocket, document_id, user, db)
         connection_id = await handler.connect()

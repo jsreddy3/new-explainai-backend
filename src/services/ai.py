@@ -113,6 +113,11 @@ class AIService:
             # Parse questions from response
             content = response.choices[0].message.content
             questions = [q.strip() for q in content.split('\n') if q.strip()]
+            cost = completion_cost(
+                model=self.MODEL,
+                messages=messages,
+                completion=content
+            )
             
             # Emit completion event
             await event_bus.emit(Event(
@@ -124,7 +129,7 @@ class AIService:
                 }
             ))
             # logger.info("Generated questions: " + str(questions))
-            return questions, completion_cost(response)
+            return questions, cost
             
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
@@ -164,6 +169,12 @@ class AIService:
                 stream=False
             )
             summary = response.choices[0].message.content.strip()
+
+            cost = completion_cost(
+                model=self.MODEL,
+                messages=messages,
+                completion=summary
+            )
             # Emit completion event
             await event_bus.emit(Event(
                 type="summary.completed",
@@ -174,7 +185,7 @@ class AIService:
                 }
             ))
             # logger.info("Generated summary: " + summary)
-            return summary, completion_cost(response)
+            return summary, cost
             
         except Exception as e:
             logger.error(f"Error generating summary: {str(e)}")

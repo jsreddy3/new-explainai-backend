@@ -123,23 +123,28 @@ class WebSocketHandler:
         except asyncio.CancelledError:
             pass
 
+    async def update_user_cost(self, cost: float):
+      """Dedicated method to update user cost with proper async handling"""
+      try:
+          async with AsyncSession(bind=self.db.engine, expire_on_commit=False) as session:
+              async with session.begin():
+                  stmt = select(User).where(User.id == self.user.id)
+                  result = await session.execute(stmt)
+                  user = result.scalar_one()
+                  old_cost = user.user_cost
+                  user.user_cost += cost
+                  await session.commit()
+                  logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+      except Exception as e:
+          logger.error(f"Failed to update user cost: {e}")
+
     async def handle_event(self, event: Event):
         """Handle different types of events"""
         try:
-            # Only attempt to update user cost if there's an authenticated user and cost data
+            # Handle cost updates in a separate task if needed
             if "cost" in event.data and self.user is not None:
-                async with AsyncSession(self.db.bind) as session:
-                    try:
-                        stmt = select(User).where(User.id == self.user.id)
-                        result = await session.execute(stmt)
-                        user = result.scalar_one()
-                        old_cost = user.user_cost
-                        user.user_cost += float(event.data["cost"])
-                        await session.commit()
-                        logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
-                    except Exception as e:
-                        logger.error(f"Failed to update user cost: {e}")
-                        await session.rollback()
+                cost = float(event.data["cost"])
+                asyncio.create_task(self.update_user_cost(cost))
 
             # Send the event data to the WebSocket client
             await self.websocket.send_json({

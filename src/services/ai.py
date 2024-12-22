@@ -33,11 +33,8 @@ class AIService:
             messages: List of message dictionaries with role and content
             stream: Whether to stream responses
         """
-        try:
-            # logger.info(f"AI Service Chat - Document: {document_id}, Conversation: {conversation_id}")
-            
+        try:            
             # Call AI model
-            # logger.info("Calling AI model...")
             response = ""
             completion = await acompletion(
                 model=self.MODEL,
@@ -56,21 +53,14 @@ class AIService:
                     data={"token": content}
                 ))
                 response += content
-            
-            # Log exchange with response
-            # await self.message_logger.log_exchange(
-            #     document_id=document_id,
-            #     conversation_id=conversation_id,
-            #     messages=messages,
-            #     response=response,
-            #     metadata={
-            #         "model": self.MODEL,
-            #         "stream": stream,
-            #         "connection_id": connection_id,
-            #         "status": "completed"
-            #     }
-            # )
-            
+
+            # Calculate cost using the input messages and final response
+            cost = completion_cost(
+                model=self.MODEL,
+                messages=messages,  # Your input messages
+                completion=response  # The complete response we built
+            )
+
             # Emit completion event
             await event_bus.emit(Event(
                 type="chat.completed",
@@ -79,24 +69,10 @@ class AIService:
                 data={"response": response}
             ))
             
-            return response, completion_cost(completion)
+            return response, cost
             
         except Exception as e:
             logger.error(f"Error in chat: {str(e)}")
-            
-            # Log error
-            # await self.message_logger.log_exchange(
-            #     document_id=document_id,
-            #     conversation_id=conversation_id,
-            #     messages=messages,
-            #     metadata={
-            #         "model": self.MODEL,
-            #         "stream": stream,
-            #         "connection_id": connection_id,
-            #         "status": "error",
-            #         "error": str(e)
-            #     }
-            # )
             
             # Emit error event
             await event_bus.emit(Event(

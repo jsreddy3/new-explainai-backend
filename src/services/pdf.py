@@ -1,22 +1,16 @@
-from fastapi import UploadFile, File, HTTPException
-import os
-from typing import Optional, List, Dict, Tuple
+from fastapi import UploadFile, HTTPException
+import fitz
+from typing import List, Dict, Tuple
 import litellm
-from tempfile import NamedTemporaryFile
-from pathlib import Path
-from datetime import datetime
-import time
-from pydantic import BaseModel
-import PyPDF2
-import logging
-import nest_asyncio
 import asyncio
-import yaml
+from pydantic import BaseModel
 
-from src.core.config import Settings
-from src.core.logging import setup_logger, log_with_context
+import time
 
 # Apply nest_asyncio to allow nested async loops
+import nest_asyncio
+from src.core.config import Settings
+from src.core.logging import setup_logger
 nest_asyncio.apply()
 
 logger = setup_logger(__name__)
@@ -25,7 +19,6 @@ settings = Settings()
 # Constants
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 CHUNK_SIZE = 2500  # Characters per chunk
-LOG_TRUNCATION_LENGTH = 500  # For truncating long log messages
 
 SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up text extracted from PDFs while preserving the exact structure and meaning of the original document.
 
@@ -108,10 +101,11 @@ class PDFService:
                     if prev_y1 is not None:
                         gap = y0 - prev_y1
                         line_height = line["bbox"][3] - line["bbox"][1]
+
+                        logger.info(f"Page {page_num}, Line Text: {line_text}, Gap: {gap}, Line height: {line_height}")
                         
-                        # If gap is larger than threshold, it's likely a new paragraph
-                        threshold = line_height * 0.7
-                        if gap > threshold:
+                        # If gap is significantly larger than line height, it's likely a new paragraph
+                        if gap > line_height * 0.7:
                             if current_para:
                                 paragraphs.append(" ".join(current_para))
                                 current_para = []
@@ -142,6 +136,9 @@ class PDFService:
         
         for para in paragraphs:
             para_size = len(para) + 2  # +2 for newlines
+
+            logger.info(f"Para size: {para_size}, Current size: {current_size}, Potential: {current_size + para_size}, Max: {max_size}")
+            logger.info(f"Para text: {para}...")
             
             # If this paragraph alone exceeds max size, split it
             if para_size > max_size:
@@ -170,6 +167,7 @@ class PDFService:
             # If adding this paragraph exceeds max size, start new chunk
             if current_size + para_size > max_size and current_chunk:
                 chunks.append('\n\n'.join(current_chunk))
+                logger.info(f"Creating chunk of size {current_size}")
                 current_chunk = []
                 current_size = 0
             
@@ -278,10 +276,12 @@ class PDFService:
             # Process chunks
             processed_text, processed_chunks, cost = await self.process_pdf_text(chunks, user_id, file.filename)
             
+            filename = file.filename.replace('.pdf', '')
+
             return PDFResponse(
                 success=True,
-                topicKey=f"pdf-{file.filename}-{hash(processed_text)%10000:04d}",
-                display=file.filename,
+                topicKey=f"pdf-{filename}-{hash(processed_text)%10000:04d}",
+                display=filename,
                 text=processed_text,
                 chunks=processed_chunks
             ), cost

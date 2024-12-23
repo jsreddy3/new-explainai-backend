@@ -110,7 +110,9 @@ class PDFService:
                         logger.info(f"Page {page_num}, Line Text: {line_text}, Gap: {gap}, Line height: {line_height}")
                         
                         # If gap is significantly larger than line height, it's likely a new paragraph
-                        if gap > line_height * 0.7:
+                        threshold = line_height * 0.7
+                        if gap > threshold:
+                            logger.info(f"New paragraph detected, gap: {gap} > threshold: {threshold}")
                             if current_para:
                                 paragraphs.append(" ".join(current_para))
                                 current_para = []

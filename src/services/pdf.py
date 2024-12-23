@@ -57,7 +57,6 @@ class PDFResponse(BaseModel):
     display: str
     text: str
     chunks: List[str]
-    pages: int
 
 class PDFService:
     def __init__(self):
@@ -284,8 +283,7 @@ class PDFService:
                 topicKey=f"pdf-{filename}-{hash(processed_text)%10000:04d}",
                 display=filename,
                 text=processed_text,
-                chunks=processed_chunks,
-                pages=len(pdf_doc)
+                chunks=processed_chunks
             ), cost
             
         except Exception as e:

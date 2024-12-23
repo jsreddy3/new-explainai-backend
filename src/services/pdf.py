@@ -1,22 +1,16 @@
-from fastapi import UploadFile, File, HTTPException
-import os
-from typing import Optional, List, Dict, Tuple
+from fastapi import UploadFile, HTTPException
+import fitz
+from typing import List, Dict, Tuple
 import litellm
-from tempfile import NamedTemporaryFile
-from pathlib import Path
-from datetime import datetime
-import time
-from pydantic import BaseModel
-import PyPDF2
-import logging
-import nest_asyncio
 import asyncio
-import yaml
+from pydantic import BaseModel
 
-from src.core.config import Settings
-from src.core.logging import setup_logger, log_with_context
+import time
 
 # Apply nest_asyncio to allow nested async loops
+import nest_asyncio
+from src.core.config import Settings
+from src.core.logging import setup_logger
 nest_asyncio.apply()
 
 logger = setup_logger(__name__)
@@ -25,40 +19,36 @@ settings = Settings()
 # Constants
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 CHUNK_SIZE = 2500  # Characters per chunk
-LOG_TRUNCATION_LENGTH = 500  # For truncating long log messages
 
-# System prompt for PDF processing
-SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up OCR-extracted text from PDFs while preserving the exact structure and meaning of the original document.
+SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up text extracted from PDFs while preserving the exact structure and meaning of the original document.
 
 Rules:
-1. Maintain all paragraph breaks exactly as they appear in the original
-2. Fix OCR errors (like misrecognized characters, unwanted hyphens)
-3. Preserve all meaningful whitespace
+1. The input text has paragraphs separated by newlines. Preserve these exact paragraph breaks.
+2. Fix any OCR or formatting errors:
+   - Join hyphenated words that were split across lines
+   - Fix misrecognized characters
+   - Normalize spacing between words
+3. Do not change paragraph organization or structure
 4. Do not add or remove content
 5. Do not add interpretations or summaries
-6. Keep all original line breaks that indicate structural elements (like lists or titles)
-7. The OCR may have split every word into a separate line. If so, join them back together properly
-8. Remove artifacts like page numbers or header/footer repetitions
+6. Remove any repeated headers, footers, or page numbers
+7. Preserve any intentional formatting like lists or titles
 
-Output only the cleaned text, with no explanations or metadata.
+Treat input text that looks like this:
 
-Example input:
-"L0rem ips-
-um d0lor sit amet, consectetur adipiscing elit.
+"First para-
+graph with some text. More text 
+here that continues.
 
-Se d d0 eius- 
-mod tempor incididunt ut lab0re.
-Page 2
+Second paragraph starts here and con-
+tinues on next line. M0re text with
+OCR errors."
 
-Ut enim ad min-
-im veniam, quis."
+And output clean text like this:
 
-Example output:
-"Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+"First paragraph with some text. More text here that continues.
 
-Sed do eiusmod tempor incididunt ut labore.
-
-Ut enim ad minim veniam, quis."
+Second paragraph starts here and continues on next line. More text with OCR errors."
 """
 
 class PDFResponse(BaseModel):
@@ -88,11 +78,104 @@ class PDFService:
         """Clean and standardize LLM output"""
         return text.strip()
 
-    def chunk_text(self, text: str, chunk_size: int = CHUNK_SIZE) -> List[str]:
-        """Split text into manageable chunks"""
-        return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    def _extract_paragraphs_with_mupdf(self, pdf_reader) -> List[str]:
+        """Extract paragraphs using PyMuPDF layout analysis"""
+        paragraphs = []
+        current_para = []
+        prev_y1 = None
+        
+        for page_num in range(len(pdf_reader)):
+            page = pdf_reader[page_num]
+            blocks = page.get_text("dict")["blocks"]
+            
+            for block in blocks:
+                if "lines" not in block:
+                    continue
+                    
+                for line in block["lines"]:
+                    # Get text from spans
+                    line_text = " ".join(span["text"] for span in line.get("spans", []))
+                    y0 = line["bbox"][1]  # top of current line
+                    
+                    # Check if this is likely a new paragraph
+                    if prev_y1 is not None:
+                        gap = y0 - prev_y1
+                        line_height = line["bbox"][3] - line["bbox"][1]
+                        
+                        # If gap is significantly larger than line height, it's likely a new paragraph
+                        if gap > line_height * 1.5:
+                            if current_para:
+                                paragraphs.append(" ".join(current_para))
+                                current_para = []
+                    
+                    current_para.append(line_text)
+                    prev_y1 = line["bbox"][3]  # bottom of current line
+            
+            # Page break - force new paragraph
+            if current_para:
+                paragraphs.append(" ".join(current_para))
+                current_para = []
+                prev_y1 = None
+        
+        # Add final paragraph
+        if current_para:
+            paragraphs.append(" ".join(current_para))
+        
+        return paragraphs
 
-    async def process_chunk(self, chunk: str, chunk_num: int, previous_messages: List[Dict[str, str]] = None) -> Tuple[str, List[Dict[str, str]]]:
+    def chunk_paragraphs(self, paragraphs: List[str], max_size: int = CHUNK_SIZE) -> List[str]:
+        """
+        Create chunks that respect paragraph boundaries while maintaining size limits.
+        If a single paragraph exceeds max_size, it will be split at sentence boundaries.
+        """
+        chunks = []
+        current_chunk = []
+        current_size = 0
+        
+        for para in paragraphs:
+            para_size = len(para) + 2  # +2 for newlines
+            
+            # If this paragraph alone exceeds max size, split it
+            if para_size > max_size:
+                # Split into sentences and try to keep sentences together
+                sentences = para.replace('. ', '.|').replace('! ', '!|').replace('? ', '?|').split('|')
+                
+                temp_chunk = []
+                temp_size = 0
+                
+                for sentence in sentences:
+                    sentence_size = len(sentence) + 1  # +1 for space
+                    
+                    if temp_size + sentence_size > max_size:
+                        if temp_chunk:
+                            chunks.append(' '.join(temp_chunk))
+                        temp_chunk = [sentence]
+                        temp_size = sentence_size
+                    else:
+                        temp_chunk.append(sentence)
+                        temp_size += sentence_size
+                
+                if temp_chunk:
+                    chunks.append(' '.join(temp_chunk))
+                continue
+            
+            # If adding this paragraph exceeds max size, start new chunk
+            if current_size + para_size > max_size and current_chunk:
+                chunks.append('\n\n'.join(current_chunk))
+                current_chunk = []
+                current_size = 0
+            
+            current_chunk.append(para)
+            current_size += para_size
+        
+        # Add final chunk
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+        
+        return chunks
+
+    async def process_chunk(self, chunk: str, chunk_num: int, 
+                          previous_messages: List[Dict[str, str]] = None) -> Tuple[str, List[Dict[str, str]], float]:
         """Process a single chunk of text using LiteLLM"""
         try:
             start_time = time.time()
@@ -124,107 +207,75 @@ class PDFService:
             })
             return chunk, messages, 0  # Fallback to original text if processing fails
 
-    async def extract_text_from_pdf(self, file: UploadFile, max_pages: int = 50) -> Tuple[str, str]:
-        """Extract text and title from PDF file"""
+    async def process_pdf_text(self, chunks: List[str], user_id: str = None, filename: str = None) -> Tuple[str, List[str], float]:
+        """Process PDF text chunks in parallel"""
+        conversation_history = [{"role": "system", "content": SYSTEM_PROMPT}]
+        
+        # Initialize progress tracking
+        if user_id and filename:
+            tracking_key = f"{user_id}:{filename}"
+            self.upload_progress[tracking_key] = {
+                "total": len(chunks),
+                "processed": 0
+            }
+        
+        # Create tasks for all chunks to process them in parallel
+        tasks = []
+        for i, chunk in enumerate(chunks):
+            tasks.append(self.process_chunk(chunk, i, conversation_history.copy()))
+        
         try:
-            # Get the original filename from UploadFile
-            filename = file.filename.replace('.pdf', '')
+            # Process all chunks concurrently
+            results = await asyncio.gather(*tasks)
+            total_cost = 0
             
-            # Read PDF using the file object
-            pdf_reader = PyPDF2.PdfReader(file.file)
+            # Unpack results and update progress
+            processed_chunks = []
+            for i, (processed_chunk, _, cost) in enumerate(results):
+                processed_chunks.append(processed_chunk)
+                if user_id and filename:
+                    tracking_key = f"{user_id}:{filename}"
+                    self.upload_progress[tracking_key]["processed"] = i + 1
+                    total_cost += cost
             
-            # Try to get title from metadata, fallback to filename
-            title = (
-                pdf_reader.metadata.get('/Title', '') if pdf_reader.metadata
-                else filename
-            )
-            
-            # If title is empty or an IndirectObject, use filename
-            if not title or 'IndirectObject' in str(title):
-                title = filename
-                
-            # Extract text from first max_pages pages only
-            if len(pdf_reader.pages) > max_pages:
-                logger.info(f"PDF has {len(pdf_reader.pages)} pages, only processing first {max_pages} pages")
+        finally:
+            # Cleanup tracking
+            if user_id and filename:
+                tracking_key = f"{user_id}:{filename}"
+                if tracking_key in self.upload_progress:
+                    del self.upload_progress[tracking_key]
+        
+        # Combine all processed chunks
+        full_text = "\n\n".join(processed_chunks)
+        return full_text, processed_chunks, total_cost
 
-            text = ""
-            for page in pdf_reader.pages[:max_pages]:
-                text += page.extract_text() + "\n"
-                
-            logger.info(f"Extracted title: {title}")
-            return text.strip(), title.strip()
-
-        except Exception as e:
-            logger.error(f"Error extracting text from PDF: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error processing PDF: {str(e)}"
-            )
-
-    async def process_pdf_text(self, text: str, user_id: str = None, filename: str = None) -> Tuple[str, List[str]]:
-      """Process PDF text with chunks running in parallel"""
-      chunks = self.chunk_text(text)
-      conversation_history = [{"role": "system", "content": SYSTEM_PROMPT}]
-      
-      # Initialize progress tracking
-      if user_id and filename:
-          tracking_key = f"{user_id}:{filename}"
-          self.upload_progress[tracking_key] = {
-              "total": len(chunks),
-              "processed": 0
-          }
-      
-      # Create tasks for all chunks to process them in parallel
-      tasks = []
-      for i, chunk in enumerate(chunks):
-          tasks.append(self.process_chunk(chunk, i, conversation_history.copy()))
-      
-      try:
-          # Process all chunks concurrently
-          results = await asyncio.gather(*tasks)
-          total_cost = 0
-          
-          # Unpack results and update progress
-          processed_chunks = []
-          for i, (processed_chunk, _, cost) in enumerate(results):
-              processed_chunks.append(processed_chunk)
-              if user_id and filename:
-                  tracking_key = f"{user_id}:{filename}"
-                  self.upload_progress[tracking_key]["processed"] = i + 1
-                  total_cost += cost
-          
-      finally:
-          # Cleanup tracking
-          if user_id and filename:
-              tracking_key = f"{user_id}:{filename}"
-              if tracking_key in self.upload_progress:
-                  del self.upload_progress[tracking_key]
-      
-      # Combine all processed chunks
-      full_text = "\n".join(processed_chunks)
-      return full_text, processed_chunks, total_cost
-
-    async def process_pdf(self, file: UploadFile, user_id: str = None) -> PDFResponse:
-        """Process PDF file and return structured response"""
+    async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
+        """Process PDF file and return structured response with cost"""
         await self.validate_pdf_file(file)
         
         try:
-            # Extract text and title
-            text, title = await self.extract_text_from_pdf(file)
+            # Read PDF with PyMuPDF
+            pdf_bytes = await file.read()
+            pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
             
-            # Process the text with progress tracking
-            processed_text, chunks, cost = await self.process_pdf_text(text, user_id, file.filename)
-
+            # Extract paragraphs and create chunks
+            paragraphs = self._extract_paragraphs_with_mupdf(pdf_doc)
+            chunks = self.chunk_paragraphs(paragraphs)
+            
             # Check for chunk limit
             if len(chunks) > 16:
-                raise HTTPException(status_code=400, detail=f"Document has too many chunks ({len(chunks)} chunks, max of 16 chunks). Please upload a shorter document.")
+                raise HTTPException(status_code=400, 
+                    detail=f"Document has too many chunks ({len(chunks)} chunks, max of 16 chunks). Please upload a shorter document.")
+            
+            # Process chunks
+            processed_text, processed_chunks, cost = await self.process_pdf_text(chunks, user_id, file.filename)
             
             return PDFResponse(
                 success=True,
-                topicKey=f"pdf-{title}-{hash(str(processed_text))%10000:04d}",
-                display=title,
+                topicKey=f"pdf-{file.filename}-{hash(processed_text)%10000:04d}",
+                display=file.filename,
                 text=processed_text,
-                chunks=chunks
+                chunks=processed_chunks
             ), cost
             
         except Exception as e:

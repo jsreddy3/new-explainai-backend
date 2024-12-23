@@ -12,7 +12,7 @@ logger = setup_logger(__name__)
 
 class AIService:
     # MODEL = "gpt-4o"
-    MODEL = "anthropic/claude-3-5-sonnet-20240620"
+    MODEL = "anthropic/claude-3-5-sonnet-20241022"
     
     def __init__(self):
         logger.info(f"Initialized AIService with model: {self.MODEL}")

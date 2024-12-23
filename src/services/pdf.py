@@ -102,7 +102,7 @@ class PDFService:
                         gap = y0 - prev_y1
                         line_height = line["bbox"][3] - line["bbox"][1]
 
-                        logger.debug(f"Page {page_num}, Line Text: {line_text}, Gap: {gap}, Line height: {line_height}")
+                        logger.info(f"Page {page_num}, Line Text: {line_text}, Gap: {gap}, Line height: {line_height}")
                         
                         # If gap is significantly larger than line height, it's likely a new paragraph
                         if gap > line_height * 1.5:
@@ -137,8 +137,8 @@ class PDFService:
         for para in paragraphs:
             para_size = len(para) + 2  # +2 for newlines
 
-            logger.debug(f"Para size: {para_size}, Current size: {current_size}, Potential: {current_size + para_size}, Max: {max_size}")
-            logger.debug(f"Para text: {para}...")
+            logger.info(f"Para size: {para_size}, Current size: {current_size}, Potential: {current_size + para_size}, Max: {max_size}")
+            logger.info(f"Para text: {para}...")
             
             # If this paragraph alone exceeds max size, split it
             if para_size > max_size:
@@ -167,7 +167,7 @@ class PDFService:
             # If adding this paragraph exceeds max size, start new chunk
             if current_size + para_size > max_size and current_chunk:
                 chunks.append('\n\n'.join(current_chunk))
-                logger.debug(f"Creating chunk of size {current_size}")
+                logger.info(f"Creating chunk of size {current_size}")
                 current_chunk = []
                 current_size = 0
             

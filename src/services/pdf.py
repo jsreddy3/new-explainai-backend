@@ -134,6 +134,9 @@ class PDFService:
         
         for para in paragraphs:
             para_size = len(para) + 2  # +2 for newlines
+
+            logger.debug(f"Para size: {para_size}, Current size: {current_size}, Potential: {current_size + para_size}, Max: {max_size}")
+            logger.debug(f"Para text: {para}...")
             
             # If this paragraph alone exceeds max size, split it
             if para_size > max_size:
@@ -162,6 +165,7 @@ class PDFService:
             # If adding this paragraph exceeds max size, start new chunk
             if current_size + para_size > max_size and current_chunk:
                 chunks.append('\n\n'.join(current_chunk))
+                logger.debug(f"Creating chunk of size {len(chunk_text)}")
                 current_chunk = []
                 current_size = 0
             
@@ -270,10 +274,12 @@ class PDFService:
             # Process chunks
             processed_text, processed_chunks, cost = await self.process_pdf_text(chunks, user_id, file.filename)
             
+            filename = file.filename.replace('.pdf', '')
+
             return PDFResponse(
                 success=True,
-                topicKey=f"pdf-{file.filename}-{hash(processed_text)%10000:04d}",
-                display=file.filename,
+                topicKey=f"pdf-{filename}-{hash(processed_text)%10000:04d}",
+                display=filename,
                 text=processed_text,
                 chunks=processed_chunks
             ), cost

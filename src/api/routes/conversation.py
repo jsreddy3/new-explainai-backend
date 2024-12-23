@@ -124,27 +124,27 @@ class WebSocketHandler:
             pass
 
     async def update_user_cost(self, cost: float):
-      """Dedicated method to update user cost with proper async handling"""
-      try:
-          async with AsyncSession(bind=self.db.engine, expire_on_commit=False) as session:
-              async with session.begin():
-                  stmt = select(User).where(User.id == self.user.id)
-                  result = await session.execute(stmt)
-                  user = result.scalar_one()
-                  old_cost = user.user_cost
-                  user.user_cost += cost
-                  await session.commit()
-                  logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
-      except Exception as e:
-          logger.error(f"Failed to update user cost: {e}")
+        """Dedicated method to update user cost with proper async handling"""
+        try:
+            # Using the existing db session
+            stmt = select(User).where(User.id == self.user.id)
+            result = await self.db.execute(stmt)
+            user = result.scalar_one()
+            old_cost = user.user_cost
+            user.user_cost += cost
+            await self.db.commit()
+            logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+        except Exception as e:
+            logger.error(f"Failed to update user cost: {e}")
+            await self.db.rollback()
 
     async def handle_event(self, event: Event):
         """Handle different types of events"""
         try:
-            # Handle cost updates in a separate task if needed
+            # Handle cost updates as a separate operation
             if "cost" in event.data and self.user is not None:
                 cost = float(event.data["cost"])
-                asyncio.create_task(self.update_user_cost(cost))
+                await self.update_user_cost(cost)
 
             # Send the event data to the WebSocket client
             await self.websocket.send_json({

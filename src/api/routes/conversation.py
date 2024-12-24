@@ -126,19 +126,25 @@ class WebSocketHandler:
     async def update_user_cost(self, cost: float):
         """Dedicated method to update user cost with proper async handling"""
         try:
-            # Create a fresh transaction
-            async with self.db.begin() as transaction:
-                stmt = select(User).where(User.id == self.user.id)
-                result = await self.db.execute(stmt)
-                user = result.scalar_one()
-                old_cost = user.user_cost
-                user.user_cost += cost
-                # Transaction will automatically commit if no exceptions
-                logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
-                print(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+            # Execute update directly without explicit transaction
+            stmt = select(User).where(User.id == self.user.id)
+            result = await self.db.execute(stmt)
+            user = result.scalar_one()
+            old_cost = user.user_cost
+            user.user_cost += cost
+            
+            # Refresh to ensure we have latest state
+            await self.db.refresh(user)
+            
+            # Attempt to commit - will work whether we're in a transaction or not
+            await self.db.commit()
+            
+            logger.info(f"Updated user {self.user.id} cost from ${old_cost:.2f} to ${user.user_cost:.2f}")
+            print(f"Updated user {self.user.id} cost from ${old_cost:.2f} to ${user.user_cost:.2f}")
         except Exception as e:
             logger.error(f"Failed to update user cost: {e}")
-            # Transaction will automatically rollback if exception occurs
+            await self.db.rollback()
+            raise
 
     async def handle_event(self, event: Event):
         """Handle different types of events"""
@@ -147,9 +153,13 @@ class WebSocketHandler:
             print("Event data: ", event.data)
             if "cost" in event.data and self.user is not None:
                 cost = float(event.data["cost"])
-                print("Cost: %f" % cost)
-                await self.update_user_cost(cost)
-
+                print("Cost: %.2f" % cost)
+                try:
+                    await self.update_user_cost(cost)
+                except Exception as cost_error:
+                    logger.error(f"Cost update failed: {cost_error}")
+                    # Continue with event handling even if cost update fails
+            
             # Send the event data to the WebSocket client
             await self.websocket.send_json({
                 "type": event.type,

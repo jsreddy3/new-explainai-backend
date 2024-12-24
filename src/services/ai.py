@@ -62,6 +62,20 @@ class AIService:
                 completion=response  # The complete response we built
             )
 
+            await self.message_logger.log_exchange(
+                document_id=document_id,
+                conversation_id=conversation_id,
+                messages=messages,
+                response=response,
+                metadata={
+                    "model": self.MODEL,
+                    "cost": cost,
+                    "stream": stream,
+                    "connection_id": connection_id
+                }
+            )
+
+
             # Emit completion event
             await event_bus.emit(Event(
                 type="chat.completed",
@@ -118,6 +132,18 @@ class AIService:
                 model=self.MODEL,
                 messages=messages,
                 completion=content
+            )
+
+            await self.message_logger.log_exchange(
+                document_id=document_id,
+                conversation_id=conversation_id,
+                messages=messages,
+                response=content,
+                metadata={
+                    "model": self.MODEL,
+                    "cost": cost,
+                    "type": "question_generation"
+                }
             )
             
             # Emit completion event

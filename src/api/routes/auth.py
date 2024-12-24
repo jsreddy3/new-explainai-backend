@@ -173,8 +173,6 @@ async def get_user_cost(
             select(User).where(User.id == current_user.id)
         )
         user = result.scalar_one()
-
-        print("Formatted cost: ", f"${float(user.user_cost):.2f}")
         
         return {
             "user_id": str(user.id),

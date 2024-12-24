@@ -126,17 +126,18 @@ class WebSocketHandler:
     async def update_user_cost(self, cost: float):
         """Dedicated method to update user cost with proper async handling"""
         try:
-            # Using the existing db session
-            stmt = select(User).where(User.id == self.user.id)
-            result = await self.db.execute(stmt)
-            user = result.scalar_one()
-            old_cost = user.user_cost
-            user.user_cost += cost
-            await self.db.commit()
-            logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
+            # Create a fresh transaction
+            async with self.db.begin() as transaction:
+                stmt = select(User).where(User.id == self.user.id)
+                result = await self.db.execute(stmt)
+                user = result.scalar_one()
+                old_cost = user.user_cost
+                user.user_cost += cost
+                # Transaction will automatically commit if no exceptions
+                logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
         except Exception as e:
             logger.error(f"Failed to update user cost: {e}")
-            await self.db.rollback()
+            # Transaction will automatically rollback if exception occurs
 
     async def handle_event(self, event: Event):
         """Handle different types of events"""

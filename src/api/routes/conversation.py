@@ -123,43 +123,9 @@ class WebSocketHandler:
         except asyncio.CancelledError:
             pass
 
-    async def update_user_cost(self, cost: float):
-        """Dedicated method to update user cost with proper async handling"""
-        try:
-            # Execute update directly without explicit transaction
-            stmt = select(User).where(User.id == self.user.id)
-            result = await self.db.execute(stmt)
-            user = result.scalar_one()
-            old_cost = user.user_cost
-            user.user_cost += cost
-            
-            # Refresh to ensure we have latest state
-            await self.db.refresh(user)
-            
-            # Attempt to commit - will work whether we're in a transaction or not
-            await self.db.commit()
-            
-            logger.info(f"Updated user {self.user.id} cost from ${old_cost:.2f} to ${user.user_cost:.2f}")
-            print(f"Updated user {self.user.id} cost from ${old_cost:.2f} to ${user.user_cost:.2f}")
-        except Exception as e:
-            logger.error(f"Failed to update user cost: {e}")
-            await self.db.rollback()
-            raise
-
     async def handle_event(self, event: Event):
         """Handle different types of events"""
         try:
-            # Handle cost updates as a separate operation
-            print("Event data: ", event.data)
-            if "cost" in event.data and self.user is not None:
-                cost = float(event.data["cost"])
-                print("Cost: %.2f" % cost)
-                try:
-                    await self.update_user_cost(cost)
-                except Exception as cost_error:
-                    logger.error(f"Cost update failed: {cost_error}")
-                    # Continue with event handling even if cost update fails
-            
             # Send the event data to the WebSocket client
             await self.websocket.send_json({
                 "type": event.type,
@@ -230,11 +196,12 @@ class WebSocketHandler:
             document_id=self.document_id,
             connection_id=self.connection_id,
             data={
-                "conversation_id": conversation_id,
-                "content": content,
-                "role": role,
-                "chunk_id": chunk_id,
-                "conversation_type": conversation_type
+                "conversation_id": data["conversation_id"],
+                "content": data["content"],
+                "role": data.get("role", "user"),
+                "chunk_id": data.get("chunk_id"),
+                "conversation_type": data.get("conversation_type"),
+                "user": self.user  # Add user to event data
             }
         ))
 

@@ -203,6 +203,7 @@ class ConversationService:
             conversation_id = event.data["conversation_id"]
             content = event.data["content"]
             chunk_id = event.data["chunk_id"]
+            user = event.data.get("user")  # Get user from event data
                         
             # Get conversation
             conversation = await self._get_conversation(conversation_id, db)  # Pass db
@@ -252,6 +253,13 @@ class ConversationService:
                 "assistant",
                 db=db  # Pass db
             )
+            if user and cost:
+                stmt = select(User).where(User.id == user.id)
+                result = await db.execute(stmt)
+                db_user = result.scalar_one()
+                db_user.user_cost += cost
+                logger.info(f"Updated user {user.id} cost to ${db_user.user_cost:.2f}")
+        
             await db.commit()
             
             await event_bus.emit(Event(

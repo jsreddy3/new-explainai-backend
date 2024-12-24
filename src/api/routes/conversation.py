@@ -143,8 +143,10 @@ class WebSocketHandler:
         """Handle different types of events"""
         try:
             # Handle cost updates as a separate operation
+            print("Event data: ", event.data)
             if "cost" in event.data and self.user is not None:
                 cost = float(event.data["cost"])
+                print("Cost: %f" % cost)
                 await self.update_user_cost(cost)
 
             # Send the event data to the WebSocket client

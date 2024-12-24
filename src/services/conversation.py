@@ -8,7 +8,7 @@ from sqlalchemy import select, and_
 import uuid
 from datetime import datetime
 
-from ..models.database import Document, DocumentChunk, Conversation, Message, Question, ConversationType
+from ..models.database import Document, DocumentChunk, Conversation, Message, Question, ConversationType, User
 from ..core.events import event_bus, Event
 from ..core.config import settings
 from ..core.logging import setup_logger
@@ -236,8 +236,8 @@ class ConversationService:
 
             if messages:
                 messages[-1]["content"] = processed_content
-            logger.info("Messages: {messages}")
-            # 5. Send entire messages array to AI service
+
+            # 3. Send entire messages array to AI service
             response, cost = await self.ai_service.chat(
                 document_id,
                 conversation_id,

@@ -136,7 +136,6 @@ class WebSocketHandler:
                 # Transaction will automatically commit if no exceptions
                 logger.info(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
                 print(f"Updated user {self.user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
-                self.db.flush()
         except Exception as e:
             logger.error(f"Failed to update user cost: {e}")
             # Transaction will automatically rollback if exception occurs

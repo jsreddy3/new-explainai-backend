@@ -169,7 +169,6 @@ async def get_user_cost(
 ):
     """Get accumulated cost for the current user"""
     try:
-        # Get fresh user data from database to ensure we have latest cost
         result = await db.execute(
             select(User).where(User.id == current_user.id)
         )
@@ -178,7 +177,7 @@ async def get_user_cost(
         return {
             "user_id": str(user.id),
             "total_cost": float(user.user_cost),
-            "formatted_cost": f"${float(user.user_cost):.10f}"
+            "formatted_cost": f"${float(user.user_cost):.2f}"  # Changed to 2 decimal places
         }
     except Exception as e:
         logger.error(f"Failed to get user cost: {e}")
@@ -186,7 +185,7 @@ async def get_user_cost(
             status_code=500,
             detail="Failed to retrieve user cost information"
         )
-        
+
 
 @router.get("/auth/config")
 async def get_auth_config():

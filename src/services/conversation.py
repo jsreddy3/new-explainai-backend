@@ -94,6 +94,29 @@ class ConversationService:
             document_id = event.document_id
             is_demo = document_id in settings.EXAMPLE_DOCUMENT_IDS
             
+            # First check if a main conversation already exists
+            result = await db.execute(
+                select(Conversation).where(
+                    and_(
+                        Conversation.document_id == document_id,
+                        Conversation.type == "main"
+                    )
+                )
+            )
+            existing_conversation = result.scalar_one_or_none()
+            
+            if existing_conversation:
+                # Return the existing conversation ID
+                logger.info("Returning existing main conversation")
+                await event_bus.emit(Event(
+                    type="conversation.main.create.completed",
+                    document_id=document_id,
+                    connection_id=event.connection_id,
+                    data={"conversation_id": str(existing_conversation.id)}
+                ))
+                return
+            
+            # If no main conversation exists, create one
             # Get first chunk
             first_chunk = await self._get_first_chunk(document_id, db)
             
@@ -118,11 +141,11 @@ class ConversationService:
                 system_prompt,
                 0,
                 "system",
-                db=db  # Pass db
+                db=db
             )
             
             await db.commit()
-            
+            logger.info("Created new main conversation")
             await event_bus.emit(Event(
                 type="conversation.main.create.completed",
                 document_id=document_id,

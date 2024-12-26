@@ -281,7 +281,6 @@ class ConversationService:
                 result = await db.execute(stmt)
                 db_user = result.scalar_one()
                 db_user.user_cost += cost
-                logger.info("User message cost: ", cost)
                 logger.info(f"Updated user {user.id} cost to ${db_user.user_cost:.2f}")
         
             await db.commit()

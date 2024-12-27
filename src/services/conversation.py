@@ -112,6 +112,7 @@ class ConversationService:
                     type="conversation.main.create.completed",
                     document_id=document_id,
                     connection_id=event.connection_id,
+                    request_id=event.request_id,
                     data={"conversation_id": str(existing_conversation.id)}
                 ))
                 return
@@ -150,6 +151,7 @@ class ConversationService:
                 type="conversation.main.create.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"conversation_id": str(conversation["id"])}
             ))
         except Exception as e:
@@ -158,6 +160,7 @@ class ConversationService:
                 type="conversation.main.create.error",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -208,6 +211,7 @@ class ConversationService:
                 type="conversation.chunk.create.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"conversation_id": str(conversation["id"])}
             ))
         except Exception as e:
@@ -216,6 +220,7 @@ class ConversationService:
                 type="conversation.chunk.create.error",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -289,6 +294,7 @@ class ConversationService:
                 type="conversation.message.send.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"message": response, "conversation_id": str(conversation["id"]), "cost": cost}
             ))
                 
@@ -298,6 +304,7 @@ class ConversationService:
                 type="conversation.message.send.error",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
             try:
@@ -357,6 +364,7 @@ class ConversationService:
                 type="conversation.questions.generate.completed",
                 document_id=conversation["document_id"],
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={
                     "conversation_id": conversation_id,
                     "questions": [q.strip() for q in questions[:count]],
@@ -370,6 +378,7 @@ class ConversationService:
                 type="conversation.questions.generate.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -430,6 +439,7 @@ class ConversationService:
                 type="conversation.merge.completed",
                 document_id=highlight_conversation["document_id"],
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={
                     "main_conversation_id": main_conversation_id,
                     "highlight_conversation_id": highlight_conversation_id,
@@ -444,6 +454,7 @@ class ConversationService:
                 type="conversation.merge.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -458,6 +469,7 @@ class ConversationService:
                 type="conversation.questions.list.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={
                     "conversation_id": conversation_id,
                     "questions": [q.strip() for q in questions]
@@ -469,6 +481,7 @@ class ConversationService:
                 type="conversation.questions.list.error",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -509,6 +522,7 @@ class ConversationService:
                 type="conversation.chunk.get.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,  # Preserve request_id
                 data={"conversations": conversations_data}
             ))
             
@@ -518,6 +532,7 @@ class ConversationService:
                 type="conversation.chunk.get.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,  # Preserve request_id
                 data={"error": str(e)}
             ))
 
@@ -559,6 +574,7 @@ class ConversationService:
                 type="conversation.list.completed",
                 document_id=document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"conversations": conversations_data}
             ))
             
@@ -568,6 +584,7 @@ class ConversationService:
                 type="conversation.list.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -605,6 +622,7 @@ class ConversationService:
                 type="conversation.messages.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={
                     "conversation_id": conversation_id,
                     "messages": message_list
@@ -618,6 +636,7 @@ class ConversationService:
                 type="conversation.messages.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={
                     "conversation_id": conversation_id,
                     "error": str(e)

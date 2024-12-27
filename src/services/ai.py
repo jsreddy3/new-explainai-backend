@@ -24,6 +24,7 @@ class AIService:
         conversation_id: str,
         messages: List[Dict[str, str]],
         connection_id: str,
+        request_id: Optional[str] = None,
         stream: bool = True
     ) -> str:
         """Chat with the AI model with streaming support
@@ -32,6 +33,8 @@ class AIService:
             document_id: ID of the document
             conversation_id: ID of the conversation
             messages: List of message dictionaries with role and content
+            connection_id: ID of the WebSocket connection
+            request_id: Optional request ID for correlation
             stream: Whether to stream responses
         """
         try:            
@@ -51,6 +54,7 @@ class AIService:
                     type="chat.token",
                     document_id=document_id,
                     connection_id=connection_id,
+                    request_id=request_id,
                     data={"token": content}
                 ))
                 response += content
@@ -71,7 +75,8 @@ class AIService:
                     "model": self.MODEL,
                     "cost": cost,
                     "stream": stream,
-                    "connection_id": connection_id
+                    "connection_id": connection_id,
+                    "request_id": request_id
                 }
             )
 
@@ -81,6 +86,7 @@ class AIService:
                 type="chat.completed",
                 document_id=document_id,
                 connection_id=connection_id,
+                request_id=request_id,
                 data={"response": response}
             ))
             
@@ -93,6 +99,8 @@ class AIService:
             await event_bus.emit(Event(
                 type="chat.error",
                 document_id=document_id,
+                connection_id=connection_id,
+                request_id=request_id,
                 data={
                     "conversation_id": conversation_id,
                     "error": str(e)

@@ -127,19 +127,24 @@ class WebSocketHandler:
         """Handle different types of events"""
         try:
             # Send the event data to the WebSocket client
-            await self.websocket.send_json({
+            response = {
                 "type": event.type,
                 "data": event.data
-            })
+            }
+            if event.request_id is not None:
+                response["request_id"] = event.request_id
+            await self.websocket.send_json(response)
         except Exception as e:
             logger.error(f"Failed to send event to WebSocket: {e}")
 
     async def handle_create_conversation(self, data: Dict):
         """Handle conversation creation request"""
+        request_id = data.get("request_id")
         await event_bus.emit(Event(
             type="conversation.main.create.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={}
         ))
 
@@ -148,18 +153,26 @@ class WebSocketHandler:
         chunk_id = data.get("chunk_id")
         highlight_range = data.get("highlight_range", {})
         highlight_text = data.get("highlight_text")
+        request_id = data.get("request_id")
 
         if not chunk_id:
-            await self.websocket.send_json({"error": "Missing required field: chunk_id"})
+            await self.websocket.send_json({
+                "error": "Missing required field: chunk_id",
+                "request_id": request_id
+            })
             return
         if not highlight_text:
-            await self.websocket.send_json({"error": "Missing required field: highlight_text"})
+            await self.websocket.send_json({
+                "error": "Missing required field: highlight_text",
+                "request_id": request_id
+            })
             return
 
         await event_bus.emit(Event(
             type="conversation.chunk.create.requested",
             connection_id=self.connection_id,
             document_id=self.document_id,
+            request_id=request_id,
             data={
                 "chunk_id": chunk_id,
                 "highlight_range": highlight_range,
@@ -174,34 +187,51 @@ class WebSocketHandler:
         role = data.get("role", "user")
         chunk_id = data.get("chunk_id")
         conversation_type = data.get("conversation_type")
+        request_id = data.get("request_id")
 
         if not conversation_id:
-            await self.websocket.send_json({"error": "Missing required field: conversation_id"})
+            await self.websocket.send_json({
+                "error": "Missing required field: conversation_id",
+                "request_id": request_id
+            })
             return
         if not content:
-            await self.websocket.send_json({"error": "Missing required field: content"})
+            await self.websocket.send_json({
+                "error": "Missing required field: content",
+                "request_id": request_id
+            })
             return
         if not conversation_type:
-            await self.websocket.send_json({"error": "Missing required field: conversation_type (must be 'main' or 'highlight')"})
+            await self.websocket.send_json({
+                "error": "Missing required field: conversation_type (must be 'main' or 'highlight')",
+                "request_id": request_id
+            })
             return
         if conversation_type == "main" and chunk_id is None:
-            await self.websocket.send_json({"error": "Missing required field: chunk_id (required for main conversations)"})
+            await self.websocket.send_json({
+                "error": "Missing required field: chunk_id (required for main conversations)",
+                "request_id": request_id
+            })
             return
         if conversation_type not in ["main", "highlight"]:
-            await self.websocket.send_json({"error": "Invalid conversation_type. Must be 'main' or 'highlight'"})
+            await self.websocket.send_json({
+                "error": "Invalid conversation_type. Must be 'main' or 'highlight'",
+                "request_id": request_id
+            })
             return
 
         await event_bus.emit(Event(
             type="conversation.message.send.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={
-                "conversation_id": data["conversation_id"],
-                "content": data["content"],
-                "role": data.get("role", "user"),
-                "chunk_id": data.get("chunk_id"),
-                "conversation_type": data.get("conversation_type"),
-                "user": self.user  # Add user to event data
+                "conversation_id": conversation_id,
+                "content": content,
+                "role": role,
+                "chunk_id": chunk_id,
+                "conversation_type": conversation_type,
+                "user": self.user
             }
         ))
 
@@ -211,50 +241,69 @@ class WebSocketHandler:
         count = data.get("count", 3)  # Optional
         conversation_type = data.get("conversation_type")
         chunk_id = data.get("chunk_id")  # Optional
+        request_id = data.get("request_id")
 
         if conversation_type not in ["main", "highlight"]:
-            await self.websocket.send_json({"error": "Invalid conversation_type. Must be 'main' or 'highlight'"})
+            await self.websocket.send_json({
+                "error": "Invalid conversation_type. Must be 'main' or 'highlight'",
+                "request_id": request_id
+            })
             return
         if conversation_type == "main" and chunk_id is None:
-            await self.websocket.send_json({"error": "Missing required field: chunk_id (required for main conversations)"})
+            await self.websocket.send_json({
+                "error": "Missing required field: chunk_id (required for main conversations)",
+                "request_id": request_id
+            })
             return
 
         if not conversation_id:
-            await self.websocket.send_json({"error": "Missing required field: conversation_id"})
+            await self.websocket.send_json({
+                "error": "Missing required field: conversation_id",
+                "request_id": request_id
+            })
             return
 
         await event_bus.emit(Event(
             type="conversation.questions.generate.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={
                 "conversation_id": conversation_id,
                 "count": count,
-                "chunk_id": data.get("chunk_id")  # Optional
+                "chunk_id": chunk_id
             }
         ))
 
     async def handle_list_conversations(self, data: Dict):
         """Handle conversations list request"""
+        request_id = data.get("request_id")
+        
         await event_bus.emit(Event(
             type="conversation.list.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={}
         ))
 
     async def handle_list_messages(self, data: Dict):
         """Handle messages list request"""
         conversation_id = data.get("conversation_id")
+        request_id = data.get("request_id")
 
         if not conversation_id:
-            await self.websocket.send_json({"error": "Missing required field: conversation_id"})
+            await self.websocket.send_json({
+                "error": "Missing required field: conversation_id",
+                "request_id": request_id
+            })
             return
 
         await event_bus.emit(Event(
             type="conversation.messages.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={
                 "conversation_id": conversation_id
             }
@@ -264,18 +313,26 @@ class WebSocketHandler:
         """Handle conversation merge request"""
         main_conversation_id = data.get("main_conversation_id")
         highlight_conversation_id = data.get("highlight_conversation_id")
+        request_id = data.get("request_id")
 
         if not main_conversation_id:
-            await self.websocket.send_json({"error": "Missing required field: main_conversation_id"})
+            await self.websocket.send_json({
+                "error": "Missing required field: main_conversation_id",
+                "request_id": request_id
+            })
             return
         if not highlight_conversation_id:
-            await self.websocket.send_json({"error": "Missing required field: highlight_conversation_id"})
+            await self.websocket.send_json({
+                "error": "Missing required field: highlight_conversation_id",
+                "request_id": request_id
+            })
             return
 
         await event_bus.emit(Event(
             type="conversation.merge.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={
                 "main_conversation_id": main_conversation_id,
                 "highlight_conversation_id": highlight_conversation_id
@@ -286,11 +343,13 @@ class WebSocketHandler:
         """Handle request to create main conversation"""
         # document_id is already available in self.document_id
         chunk_id = data.get("chunk_id")  # Optional
+        request_id = data.get("request_id")
         
         await event_bus.emit(Event(
             type="conversation.main.create.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={
                 "chunk_id": chunk_id
             }
@@ -298,25 +357,33 @@ class WebSocketHandler:
 
     async def handle_list_chunks(self, data: Dict):
         """Handle request to list document chunks"""
+        request_id = data.get("request_id")
+        
         await event_bus.emit(Event(
             type="document.chunk.list.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={}
         ))
 
     async def handle_get_conversations_by_sequence(self, data: Dict):
         """Handle request to get conversations by chunk sequence number"""
         sequence_number = data.get("sequence_number")
+        request_id = data.get("request_id")
         
         if sequence_number is None:  # explicitly check None since 0 is valid
-            await self.websocket.send_json({"error": "Missing required field: sequence_number"})
+            await self.websocket.send_json({
+                "error": "Missing required field: sequence_number",
+                "request_id": request_id
+            })
             return
             
         await event_bus.emit(Event(
             type="conversation.chunk.get.requested",
             document_id=self.document_id,
             connection_id=self.connection_id,
+            request_id=request_id,
             data={
                 "sequence_number": sequence_number
             }
@@ -326,16 +393,18 @@ class WebSocketHandler:
         """Process incoming WebSocket message"""
         msg_type = message.get("type")
         data = message.get("data", {})
+        request_id = data.get("request_id")  # Extract request_id from incoming message
+        
+        # Add request_id to data if not already present
+        if request_id and "request_id" not in data:
+            data["request_id"] = request_id
 
         if msg_type == "conversation.main.create":
             await self.handle_create_main_conversation(data)
         elif msg_type == "conversation.chunk.create":
             await self.handle_create_chunk_conversation(data)
         elif msg_type == "conversation.chunk.merge":
-            await self.handle_merge_conversations({
-                "main_conversation_id": data.get("main_conversation_id"),
-                "highlight_conversation_id": data.get("highlight_conversation_id")
-            })
+            await self.handle_merge_conversations(data)
         elif msg_type == "conversation.message.send":
             await self.handle_send_message(data)
         elif msg_type == "conversation.list":
@@ -349,7 +418,10 @@ class WebSocketHandler:
         elif msg_type == "conversation.messages.get":
             await self.handle_list_messages(data)
         else:
-            await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
+            await self.websocket.send_json({
+                "error": f"Unknown message type: {msg_type}",
+                "request_id": request_id
+            })
                 
 @router.websocket("/conversations/stream/{document_id}")
 async def conversation_stream(

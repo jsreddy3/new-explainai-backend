@@ -14,6 +14,7 @@ class Event:
     document_id: str
     data: Dict[str, Any]
     connection_id: Optional[str] = None
+    request_id: Optional[int] = None
 
     def __post_init__(self):
         self._created_at = asyncio.get_event_loop().time()
@@ -28,6 +29,8 @@ class Event:
         }
         if self.connection_id:
             result["connection_id"] = self.connection_id
+        if self.request_id is not None:
+            result["request_id"] = self.request_id
         return result
 
 class EventBus:

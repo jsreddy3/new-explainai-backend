@@ -87,6 +87,7 @@ class DocumentService:
                 type="document.chunk.list.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"chunks": chunks}
             ))
         except Exception as e:
@@ -95,6 +96,7 @@ class DocumentService:
                 type="document.chunk.list.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -107,6 +109,7 @@ class DocumentService:
                 type="document.metadata.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"document": document}
             ))
         except Exception as e:
@@ -115,6 +118,7 @@ class DocumentService:
                 type="document.metadata.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -129,6 +133,7 @@ class DocumentService:
                 type="document.navigation.completed",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data=chunk_data
             ))
         except Exception as e:
@@ -137,6 +142,7 @@ class DocumentService:
                 type="document.navigation.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 
@@ -148,6 +154,7 @@ class DocumentService:
                     type="document.processing.completed",
                     document_id=event.document_id,
                     connection_id=event.connection_id,
+                    request_id=event.request_id,
                     data={"document": document}
                 ))
             else:
@@ -158,6 +165,7 @@ class DocumentService:
                 type="document.processing.error",
                 document_id=event.document_id,
                 connection_id=event.connection_id,
+                request_id=event.request_id,
                 data={"error": str(e)}
             ))
 

@@ -164,22 +164,46 @@ class WebSocketHandler:
         """Process incoming WebSocket message"""
         msg_type = message.get("type")
         data = message.get("data", {})
+        request_id = data.get("request_id")  # Extract request_id from incoming message
         
-        logger.info(f"[WS] Received message from client: type={msg_type}")
-        logger.debug(f"[WS] Message data: {data}")
+        # Add request_id to data if not already present
+        if request_id and "request_id" not in data:
+            data["request_id"] = request_id
 
         if msg_type == "document.chunk.list":
-            await self.handle_list_chunks(data)
+            await event_bus.emit(Event(
+                type="document.chunk.list.requested",
+                document_id=self.document_id,
+                connection_id=self.connection_id,
+                request_id=request_id
+            ))
         elif msg_type == "document.metadata":
-            logger.info("Handling document metadata request")
-            await self.handle_get_metadata(data)
-        elif msg_type == "document.navigate":
-            await self.handle_navigate_chunks(data)
-        elif msg_type == "document.process":
-            await self.handle_process_document(data)
+            await event_bus.emit(Event(
+                type="document.metadata.requested",
+                document_id=self.document_id,
+                connection_id=self.connection_id,
+                request_id=request_id
+            ))
+        elif msg_type == "document.navigation":
+            await event_bus.emit(Event(
+                type="document.navigation.requested",
+                document_id=self.document_id,
+                connection_id=self.connection_id,
+                request_id=request_id,
+                data=data
+            ))
+        elif msg_type == "document.processing":
+            await event_bus.emit(Event(
+                type="document.processing.requested",
+                document_id=self.document_id,
+                connection_id=self.connection_id,
+                request_id=request_id
+            ))
         else:
-            logger.warning(f"[WS] Unknown message type: {msg_type}")
-            await self.websocket.send_json({"error": f"Unknown message type: {msg_type}"})
+            await self.websocket.send_json({
+                "error": f"Unknown message type: {msg_type}",
+                "request_id": request_id
+            })
 
     async def cleanup(self):
         """Cleanup resources when connection is closed"""

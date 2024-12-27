@@ -175,14 +175,16 @@ class WebSocketHandler:
                 type="document.chunk.list.requested",
                 document_id=self.document_id,
                 connection_id=self.connection_id,
-                request_id=request_id
+                request_id=request_id,
+                data={}  # Empty dict for data
             ))
         elif msg_type == "document.metadata":
             await event_bus.emit(Event(
                 type="document.metadata.requested",
                 document_id=self.document_id,
                 connection_id=self.connection_id,
-                request_id=request_id
+                request_id=request_id,
+                data={}  # Empty dict for data
             ))
         elif msg_type == "document.navigation":
             await event_bus.emit(Event(
@@ -190,14 +192,15 @@ class WebSocketHandler:
                 document_id=self.document_id,
                 connection_id=self.connection_id,
                 request_id=request_id,
-                data=data
+                data=data  # Pass through the navigation data
             ))
         elif msg_type == "document.processing":
             await event_bus.emit(Event(
                 type="document.processing.requested",
                 document_id=self.document_id,
                 connection_id=self.connection_id,
-                request_id=request_id
+                request_id=request_id,
+                data={}  # Empty dict for data
             ))
         else:
             await self.websocket.send_json({

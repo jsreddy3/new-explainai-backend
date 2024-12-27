@@ -111,6 +111,7 @@ class AIService:
     async def generate_questions(
         self,
         document_id: str,
+        request_id: str,
         conversation_id: str,
         system_prompt: str,
         user_prompt: str,
@@ -158,6 +159,7 @@ class AIService:
             await event_bus.emit(Event(
                 type="questions.completed",
                 document_id=document_id,
+                request_id=request_id,
                 data={
                     "conversation_id": conversation_id,
                     "questions": questions
@@ -172,6 +174,7 @@ class AIService:
             await event_bus.emit(Event(
                 type="questions.error",
                 document_id=document_id,
+                request_id=request_id,
                 data={
                     "conversation_id": conversation_id,
                     "error": str(e)
@@ -182,6 +185,7 @@ class AIService:
     async def generate_summary(
         self,
         document_id: str,
+        request_id: str,
         conversation_id: str,
         system_prompt: str,
         user_prompt: str,
@@ -214,6 +218,7 @@ class AIService:
             await event_bus.emit(Event(
                 type="summary.completed",
                 document_id=document_id,
+                request_id=request_id,
                 data={
                     "conversation_id": conversation_id,
                     "summary": summary
@@ -228,6 +233,7 @@ class AIService:
             await event_bus.emit(Event(
                 type="summary.error",
                 document_id=document_id,
+                request_id=request_id,
                 data={
                     "conversation_id": conversation_id,
                     "error": str(e)

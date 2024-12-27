@@ -270,7 +270,8 @@ class ConversationService:
                 document_id,
                 conversation_id,
                 messages=messages,
-                connection_id=event.connection_id  # Pass the WebSocket connection_id
+                connection_id=event.connection_id,  # Pass the WebSocket connection_id
+                request_id=event.request_id  # Pass the request_id
             )
                         
             # Add AI response in a new transaction
@@ -343,6 +344,7 @@ class ConversationService:
             
             questions, cost = await self.ai_service.generate_questions(
                 document_id=conversation["document_id"],
+                request_id=event.request_id,
                 conversation_id=conversation_id,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt
@@ -405,6 +407,7 @@ class ConversationService:
             
             summary, cost = await self.ai_service.generate_summary(
                 document_id=highlight_conversation["document_id"],
+                request_id=event.request_id,
                 conversation_id=highlight_conversation_id,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt

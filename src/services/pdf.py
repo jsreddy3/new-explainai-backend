@@ -4,6 +4,8 @@ from typing import List, Dict, Tuple
 import litellm
 import asyncio
 from pydantic import BaseModel
+from docx import Document
+import io
 
 import time
 
@@ -20,7 +22,7 @@ settings = Settings()
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 CHUNK_SIZE = 2500  # Characters per chunk
 
-SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up text extracted from PDFs while preserving the exact structure and meaning of the original document.
+SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up text extracted from PDFs while preserving the exact structure and wording of the original document.
 
 Rules:
 1. The input text has paragraphs separated by newlines. Preserve these exact paragraph breaks.
@@ -51,6 +53,27 @@ And output clean text like this:
 Second paragraph starts here and continues on next line. More text with OCR errors."
 """
 
+VLM_PROMPT = """You are a precise text extractor and formatter. Your task is to extract and output the text in the provided image, preserving the exact structure and wording of the original document.
+
+Rules:
+1. The input text has paragraphs separated by newlines. Preserve these exact paragraph breaks.
+2. Fix any OCR or formatting errors:
+   - Join hyphenated words that were split across lines
+   - Fix misrecognized characters
+   - Normalize spacing between words
+3. Do not change paragraph organization or structure
+4. Do not add or remove content
+5. Do not add interpretations or summaries
+6. Remove any repeated headers, footers, or page numbers
+7. Preserve any intentional formatting like lists or titles
+
+Then you must output clean text like this:
+
+"First paragraph with some text. More text here that continues.
+
+Second paragraph starts here and continues on next line. More text with OCR errors."
+"""
+
 class PDFResponse(BaseModel):
     success: bool
     topicKey: str
@@ -64,9 +87,12 @@ class PDFService:
         self.upload_progress = {}  # {user_id:filename -> {total: int, processed: int}}
 
     async def validate_pdf_file(self, file: UploadFile) -> None:
-        """Validate that the uploaded file is a PDF and within size limits"""
-        if not file.filename.lower().endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="File must be a PDF")
+        """Validate that the uploaded file is supported and within size limits"""
+        allowed_extensions = {'.pdf', '.txt', '.docx', '.md'}
+        file_ext = '.' + file.filename.lower().split('.')[-1]
+        
+        if file_ext not in allowed_extensions:
+            raise HTTPException(status_code=400, detail=f"File must be one of: {', '.join(allowed_extensions)}")
         
         content = await file.read()
         await file.seek(0)  # Reset file pointer
@@ -255,17 +281,33 @@ class PDFService:
         full_text = "\n\n".join(processed_chunks)
         return full_text, processed_chunks, total_cost
 
+    def _extract_text_from_file(self, file_content: bytes, file_ext: str) -> List[str]:
+        """Extract paragraphs from supported file types"""
+        if file_ext in ['.txt', '.md']:
+            text = file_content.decode('utf-8')
+            # Split on double newlines to preserve paragraph structure
+            return [p.strip() for p in text.split('\n\n') if p.strip()]
+        
+        elif file_ext == '.docx':
+            doc = Document(io.BytesIO(file_content))
+            # Extract paragraphs from docx
+            return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        
+        elif file_ext == '.pdf':
+            pdf_doc = fitz.open(stream=file_content, filetype="pdf")
+            return self._extract_paragraphs_with_mupdf(pdf_doc)
+
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
-        """Process PDF file and return structured response with cost"""
+        """Process document file and return structured response with cost"""
         await self.validate_pdf_file(file)
         
         try:
-            # Read PDF with PyMuPDF
-            pdf_bytes = await file.read()
-            pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            # Read file content
+            file_content = await file.read()
+            file_ext = '.' + file.filename.lower().split('.')[-1]
             
-            # Extract paragraphs and create chunks
-            paragraphs = self._extract_paragraphs_with_mupdf(pdf_doc)
+            # Extract paragraphs based on file type
+            paragraphs = self._extract_text_from_file(file_content, file_ext)
             chunks = self.chunk_paragraphs(paragraphs)
             
             # Check for chunk limit
@@ -273,21 +315,27 @@ class PDFService:
                 raise HTTPException(status_code=400, 
                     detail=f"Document has too many chunks ({len(chunks)} chunks, max of 16 chunks). Please upload a shorter document.")
             
-            # Process chunks
-            processed_text, processed_chunks, cost = await self.process_pdf_text(chunks, user_id, file.filename)
+            # For text-based files, skip LLM processing
+            if file_ext in ['.txt', '.docx', '.md']:
+                processed_text = '\n\n'.join(chunks)
+                cost = 0
+            else:
+                # Process PDF chunks through LLM
+                processed_text, processed_chunks, cost = await self.process_pdf_text(chunks, user_id, file.filename)
+                chunks = processed_chunks
             
-            filename = file.filename.replace('.pdf', '')
-
+            filename = file.filename.rsplit('.', 1)[0]
+            
             return PDFResponse(
                 success=True,
                 topicKey=f"pdf-{filename}-{hash(processed_text)%10000:04d}",
                 display=filename,
                 text=processed_text,
-                chunks=processed_chunks
+                chunks=chunks
             ), cost
             
         except Exception as e:
-            logger.error(f"Error processing PDF: {str(e)}")
+            logger.error(f"Error processing document: {str(e)}")
             if user_id and file.filename:
                 tracking_key = f"{user_id}:{file.filename}"
                 if tracking_key in self.upload_progress:

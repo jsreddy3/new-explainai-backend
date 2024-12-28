@@ -17,6 +17,7 @@ asyncpg==0.29.0
 # PDF Processing
 PyPDF2==3.0.1
 PyMuPDF==1.25.1
+python-docx==1.1.2
 
 # AI and ML
 openai==1.55.0

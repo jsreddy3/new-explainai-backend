@@ -22,6 +22,7 @@ settings = Settings()
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 CHUNK_SIZE = 2500  # Characters per chunk
 MAX_CHUNKS = 16  # Maximum number of chunks to process
+MINIMUM_TEXT_LENGTH = 10 # minimum number of characters extracted from document
 
 SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up text extracted from PDFs while preserving the exact structure and wording of the original document.
 
@@ -326,6 +327,8 @@ class PDFService:
                 chunks = processed_chunks
             
             filename = file.filename.rsplit('.', 1)[0]
+
+            assert len(processed_text) > MINIMUM_TEXT_LENGTH, "Extracted text is too short"
             
             return PDFResponse(
                 success=True,

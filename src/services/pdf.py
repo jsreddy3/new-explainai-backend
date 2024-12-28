@@ -21,6 +21,7 @@ settings = Settings()
 # Constants
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 CHUNK_SIZE = 2500  # Characters per chunk
+MAX_CHUNKS = 16  # Maximum number of chunks to process
 
 SYSTEM_PROMPT = """You are a precise text formatter. Your task is to clean up text extracted from PDFs while preserving the exact structure and wording of the original document.
 
@@ -310,10 +311,10 @@ class PDFService:
             paragraphs = self._extract_text_from_file(file_content, file_ext)
             chunks = self.chunk_paragraphs(paragraphs)
             
-            # Check for chunk limit
-            if len(chunks) > 16:
-                raise HTTPException(status_code=400, 
-                    detail=f"Document has too many chunks ({len(chunks)} chunks, max of 16 chunks). Please upload a shorter document.")
+            # Limit number of chunks
+            if len(chunks) > MAX_CHUNKS:
+                logger.info(f"Truncating document from {len(chunks)} chunks to {MAX_CHUNKS} chunks")
+                chunks = chunks[:MAX_CHUNKS]
             
             # For text-based files, skip LLM processing
             if file_ext in ['.txt', '.docx', '.md']:

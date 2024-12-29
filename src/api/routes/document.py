@@ -103,7 +103,7 @@ class WebSocketHandler:
     async def handle_event(self, event: Event):
         """Handle different types of events"""
         try:
-            logger.info(f"[WS] Sending event to client: type={event.type}")
+            # logger.info(f"[WS] Sending event to client: type={event.type}")
             logger.debug(f"[WS] Event data: {event.data}")
             
             # Send the event data to the WebSocket client

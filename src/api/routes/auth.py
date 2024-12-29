@@ -89,7 +89,7 @@ async def get_current_user_or_none(
     if document_id is not None and document_id in settings.EXAMPLE_DOCUMENT_IDS:
         return None
     
-    logger.info("Received token: %s", token)
+    # logger.info("Received token: %s", token)
     # For all other cases (no document_id or non-example document), require auth
     return await get_current_user(token, auth_service)
 

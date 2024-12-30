@@ -96,14 +96,24 @@ class ConversationService:
             is_demo = document_id in settings.EXAMPLE_DOCUMENT_IDS
             
             # First check if a main conversation already exists
-            result = await db.execute(
-                select(Conversation).where(
-                    and_(
-                        Conversation.document_id == document_id,
-                        Conversation.type == "main"
-                    )
+            query = select(Conversation).where(
+                and_(
+                    Conversation.document_id == document_id,
+                    Conversation.type == "main"
                 )
             )
+            
+            # For demo docs, only find main conversations from this connection
+            if is_demo:
+                logger.info(f"Looking for demo main conversation with connection_id: {event.connection_id}")
+                query = query.where(
+                    and_(
+                        Conversation.is_demo == True,
+                        Conversation.meta_data['connection_id'].astext == event.connection_id
+                    )
+                )
+            
+            result = await db.execute(query)
             existing_conversation = result.scalar_one_or_none()
             
             if existing_conversation:
@@ -147,7 +157,7 @@ class ConversationService:
             )
             
             await db.commit()
-            logger.info("Created new main conversation")
+            logger.info(f"Created new main conversation for connection {event.connection_id}")
             await event_bus.emit(Event(
                 type="conversation.main.create.completed",
                 document_id=document_id,

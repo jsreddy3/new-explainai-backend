@@ -27,9 +27,10 @@ class Settings(BaseSettings):
     MAX_CHUNKS_PER_DOC: int = 100
     SUPPORTED_MIME_TYPES: list = ["application/pdf"]
     EXAMPLE_DOCUMENT_IDS: list = [
-        "49efa525-72b3-441e-a103-5eb2728c2ed6",  # Declaration of Independence
-        "136d1b64-d4bb-4417-af9a-56837bd64e02",  # How is Inflation Measured?
-        "0779a2bf-0f4a-442f-9726-df235906f684"   # Lord of the Rings
+        "2ee4de4e-2813-47d5-bbea-1863a5d86242",  # Declaration of Independence
+        "03db4281-0ccf-4ad7-9b54-a17698e28b7a",  # How is Inflation Measured?
+        "e5dd251a-3838-48e6-b1ab-cab830b0e892",   # Lord of the Rings
+        "65b1bc8d-94ec-4c48-8cdd-dd75c03c8097"
     ]
 
     # API Keys

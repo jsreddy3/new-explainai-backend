@@ -303,8 +303,6 @@ class PDFService:
 
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
         """Process document file and return structured response with cost"""
-        if user_id:
-            await check_user_cost_limit(self.db, user_id)
             
         await self.validate_pdf_file(file)
         

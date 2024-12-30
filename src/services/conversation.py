@@ -14,6 +14,7 @@ from ..core.config import settings
 from ..core.logging import setup_logger
 from .ai import AIService
 from ..prompts.manager import PromptManager
+from src.services.cost import check_user_cost_limit
 
 logger = setup_logger(__name__)
 
@@ -243,7 +244,11 @@ class ConversationService:
             content = event.data["content"]
             chunk_id = event.data["chunk_id"]
             user = event.data.get("user")  # Get user from event data
-                        
+            
+            # Check cost limit first if user exists
+            if user:
+                await check_user_cost_limit(db, user.id)
+            
             # Get conversation
             conversation = await self._get_conversation(conversation_id, db)  # Pass db
             chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=conversation["chunk_id"], db=db) if conversation["chunk_id"] else None  # Pass db
@@ -328,7 +333,12 @@ class ConversationService:
         try:
             data = event.data
             conversation_id = data["conversation_id"]
-            count = data.get("count", 3)
+            document_id = event.data["document_id"]
+            user = event.data.get("user")
+            
+            # Check cost limit first if user exists
+            if user:
+                await check_user_cost_limit(db, user.id)
             
             # Get conversation and chunk
             conversation = await self._get_conversation(conversation_id, db)  # Pass db
@@ -343,13 +353,13 @@ class ConversationService:
                 system_prompt, user_prompt = self.prompt_manager.create_highlight_question_prompts(
                     chunk_text=chunk["content"],
                     highlight_text=highlight_text,
-                    count=count,
+                    count=3,
                     previous_questions=previous_questions
                 )
             else:
                 system_prompt, user_prompt = self.prompt_manager.create_main_question_prompts(
                     chunk_text=chunk["content"],
-                    count=count,
+                    count=3,
                     previous_questions=previous_questions
                 )
             
@@ -362,7 +372,7 @@ class ConversationService:
             )
             
             # Store generated questions
-            for question in questions[:count]:
+            for question in questions[:3]:
                 if question.strip():
                     question_entry = Question(
                         conversation_id=conversation_id,
@@ -380,7 +390,7 @@ class ConversationService:
                 request_id=event.request_id,
                 data={
                     "conversation_id": conversation_id,
-                    "questions": [q.strip() for q in questions[:count]],
+                    "questions": [q.strip() for q in questions[:3]],
                     "cost": cost
                 }
             ))

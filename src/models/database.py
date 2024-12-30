@@ -21,6 +21,7 @@ class User(Base):
     last_login = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     meta_data = Column(JSON, nullable=True)
     user_cost = Column(Float, default=0.0)
+    cost_limit = Column(Float, default=3.0)  # Default $3 limit
 
     # Add relationship to documents
     documents = relationship("Document", back_populates="owner")

@@ -7,6 +7,7 @@ from src.core.logging import setup_logger
 from src.core.events import event_bus, Event
 from src.utils.message_logger import MessageLogger
 from src.utils.memory_tracker import track_memory
+from src.services.cost import check_user_cost_limit
 
 logger = setup_logger(__name__)
 
@@ -25,7 +26,8 @@ class AIService:
         messages: List[Dict[str, str]],
         connection_id: str,
         request_id: Optional[str] = None,
-        stream: bool = True
+        stream: bool = True,
+        user_id: Optional[str] = None
     ) -> str:
         """Chat with the AI model with streaming support
         
@@ -36,7 +38,11 @@ class AIService:
             connection_id: ID of the WebSocket connection
             request_id: Optional request ID for correlation
             stream: Whether to stream responses
+            user_id: Optional user ID for cost limit checks
         """
+        if user_id:
+            await check_user_cost_limit(self.db, user_id)
+        
         try:            
             # Call AI model
             response = ""
@@ -191,6 +197,7 @@ class AIService:
         conversation_id: str,
         system_prompt: str,
         user_prompt: str,
+        user_id: Optional[str] = None
     ) -> str:
         """Generate a summary using the AI model
         
@@ -199,7 +206,11 @@ class AIService:
             conversation_id: ID of the conversation
             system_prompt: Formatted system prompt
             user_prompt: Formatted user prompt
+            user_id: Optional user ID for cost limit checks
         """
+        if user_id:
+            await check_user_cost_limit(self.db, user_id)
+        
         try:
             response = await acompletion(
                 model=self.MODEL,

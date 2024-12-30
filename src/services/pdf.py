@@ -13,6 +13,7 @@ import time
 import nest_asyncio
 from src.core.config import Settings
 from src.core.logging import setup_logger
+from src.services.cost import check_user_cost_limit
 nest_asyncio.apply()
 
 logger = setup_logger(__name__)
@@ -87,6 +88,7 @@ class PDFService:
     def __init__(self):
         self.max_file_size = MAX_FILE_SIZE
         self.upload_progress = {}  # {user_id:filename -> {total: int, processed: int}}
+        self.db = None  # Initialize db attribute
 
     async def validate_pdf_file(self, file: UploadFile) -> None:
         """Validate that the uploaded file is supported and within size limits"""
@@ -301,6 +303,9 @@ class PDFService:
 
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
         """Process document file and return structured response with cost"""
+        if user_id:
+            await check_user_cost_limit(self.db, user_id)
+            
         await self.validate_pdf_file(file)
         
         try:

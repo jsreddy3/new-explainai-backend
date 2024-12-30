@@ -81,6 +81,7 @@ class ConversationService:
             async with self.semaphore:
                 async with self.AsyncSessionLocal() as db:
                     try:
+                        logger.info(f"Running task: {event.type}")
                         await handler(event, db)
                     except Exception as e:
                         logger.error(f"Handler error: {e}")

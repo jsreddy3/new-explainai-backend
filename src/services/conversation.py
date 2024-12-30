@@ -246,6 +246,7 @@ class ConversationService:
             user = event.data.get("user")  # Get user from event data
             
             # Check cost limit first if user exists
+            logger.info("Checking user cost limit for user: %s", user.id if user else "None")
             if user:
                 await check_user_cost_limit(db, user.id)
             

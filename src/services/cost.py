@@ -2,6 +2,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from src.models.database import User
 from src.core.exceptions import CostLimitExceededError
+from src.core.logging import setup_logger
+
+logger = setup_logger(__name__)
 
 async def check_user_cost_limit(db: AsyncSession, user_id: str):
     """Check if user has exceeded their cost limit"""

@@ -22,6 +22,8 @@ class User(Base):
     meta_data = Column(JSON, nullable=True)
     user_cost = Column(Float, default=0.0)
     cost_limit = Column(Float, default=3.0)  # Default $3 limit
+    is_approved = Column(Boolean, default=False)  # Whether user is manually approved
+    approval_type = Column(String, nullable=True)  # 'stanford' or 'manual'
 
     # Add relationship to documents
     documents = relationship("Document", back_populates="owner")

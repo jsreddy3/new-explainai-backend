@@ -272,6 +272,34 @@ async def remove_user_approval(
             detail="Can only remove manual approvals"
         )
 
+@router.post("/auth/request-approval")
+async def request_approval(
+    name: str = Body(...),
+    email: str = Body(...),
+    reason: str = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Log the user's request for approval in a text file.
+    """
+    try:
+        # Append the request to a log file.
+        # Adjust the file path to your liking, or store in a DB if preferred.
+        log_path = "approval_requests.txt"
+        log_entry = f"{datetime.utcnow().isoformat()} | Name: {name} | Email: {email} | Reason: {reason}\n"
+        
+        # Make sure the directory exists, if needed
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(log_entry)
+        
+        return {"message": "Request logged successfully"}
+
+    except Exception as e:
+        # If there's any error (e.g., file write permission), return 500
+        raise HTTPException(status_code=500, detail=f"Failed to log request: {str(e)}")
+
 @router.get("/auth/config")
 async def get_auth_config():
     """Get authentication configuration for frontend"""

@@ -281,21 +281,20 @@ async def request_approval(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        log_path = "approval_requests.txt"
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        
+        log_path = "approval_requests.txt"  # no subdirectory
         log_entry = (
             f"{datetime.utcnow().isoformat()} | "
             f"Name: {name} | Email: {email} | Reason: {reason}\n"
         )
-        
+
+        # Simply open (or create if not exists) the file and write:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_entry)
         
         return {"message": "Request logged successfully"}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to log request: {str(e)}")
+
 
 @router.get("/auth/config")
 async def get_auth_config():

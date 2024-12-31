@@ -6,6 +6,7 @@ from sqlalchemy import and_
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 from src.core.logging import setup_logger
+import os
 
 logger = setup_logger(__name__)
 

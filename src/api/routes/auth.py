@@ -46,7 +46,7 @@ async def google_login(
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "admin": user.is_admin
+                "is_admin": user.is_admin
             }
         }
     except ValueError as e:

@@ -164,32 +164,52 @@ async def get_user_cost(
             detail="Failed to retrieve user cost information"
         )
 
+# In the routes file, update the approve_user endpoint:
 @router.post("/auth/approve-user")
 async def approve_user(
-    email: str = Query(...),  # Using Query parameter
+    email: str = Query(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Approve a user for access"""
-    # First check if current user is admin
+    """Approve a user for access (creates user if they don't exist)"""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Find the user to approve
     result = await db.execute(
         select(User).where(User.email == email)
     )
     user = result.scalar_one_or_none()
     
     if not user:
-        raise HTTPException(status_code=404, detail=f"User with email {email} not found")
-    
-    # Update approval status
-    user.is_approved = True
-    user.approval_type = "manual"
+        # Create new user
+        from uuid import uuid4
+        user = User(
+            id=str(uuid4()),
+            email=email,
+            name=email.split('@')[0],  # Use email prefix as temporary name
+            is_approved=True,
+            approval_type="manual",
+            user_cost=0.0,
+            created_at=datetime.utcnow()
+        )
+        db.add(user)
+    else:
+        user.is_approved = True
+        user.approval_type = "manual"
+        
     await db.commit()
+    await db.refresh(user)
     
-    return {"message": f"User {email} approved"}
+    return {
+        "message": f"User {email} approved",
+        "was_created": user is not None,
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "approval_type": user.approval_type
+        }
+    }
 
 @router.get("/auth/approved-users")
 async def list_approved_users(

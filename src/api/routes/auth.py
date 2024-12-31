@@ -280,27 +280,25 @@ async def request_approval(
     reason: str = Body(...),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Store the user's approval request in the database.
+    """
     try:
-        log_path = "approval_requests.txt"  # no subdirectory
-        log_entry = (
-            f"{datetime.utcnow().isoformat()} | "
-            f"Name: {name} | Email: {email} | Reason: {reason}\n"
+        # Create a new ApprovalRequest object
+        approval_request = ApprovalRequest(
+            name=name,
+            email=email,
+            reason=reason,
         )
 
-        # Simply open (or create if not exists) the file and write:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-        
-        return {"message": "Request logged successfully"}
+        # Add to the session, commit, refresh
+        db.add(approval_request)
+        await db.commit()
+        await db.refresh(approval_request)
+
+        return {"message": "Request logged successfully in the database"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to log request: {str(e)}")
-
-
-@router.get("/auth/config")
-async def get_auth_config():
-    """Get authentication configuration for frontend"""
-    return {
-        "googleClientId": settings.GOOGLE_CLIENT_ID,
-        "apiBaseUrl": settings.API_BASE_URL,
-        "environment": settings.ENVIRONMENT
-    }
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to log request in DB: {str(e)}"
+        )

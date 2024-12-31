@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request, Query
+from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -167,7 +167,7 @@ async def get_user_cost(
 # In the routes file, update the approve_user endpoint:
 @router.post("/auth/approve-user")
 async def approve_user(
-    email: str = Query(...),
+    email: str = Body(..., embed=True),  # Changed this line
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

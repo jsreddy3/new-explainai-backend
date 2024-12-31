@@ -79,14 +79,18 @@ async def get_current_user_or_none(
     document_id: Optional[str] = None,
     auth_service: AuthService = Depends(get_auth_service)
 ) -> Optional[User]:
-    logger.info(f"get_current_user_or_none called with token: {token[:20]}... and document_id: {document_id}")
-    
+    """Get current user from JWT token, allowing None only for example documents."""
+    # If document_id provided and it's an example document, allow unauthenticated access
     if document_id is not None and document_id in settings.EXAMPLE_DOCUMENT_IDS:
-        logger.info("Allowing unauthenticated access for example document")
         return None
     
-    logger.info("Requiring authentication - calling get_current_user")
-    return await get_current_user(token, auth_service)
+    # For all other cases, require auth
+    try:
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        return await auth_service.get_current_user(token)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
 @router.get("/auth/me")
 async def get_current_user_info(current_user: User = Depends(get_current_user_or_none)):

@@ -190,7 +190,8 @@ async def approve_user(
             is_approved=True,
             approval_type="manual",
             user_cost=0.0,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            is_admin=False
         )
         db.add(user)
     else:
@@ -207,6 +208,7 @@ async def approve_user(
             "id": str(user.id),
             "email": user.email,
             "name": user.name,
+            "is_admin": user.is_admin,
             "approval_type": user.approval_type
         }
     }

@@ -59,44 +59,42 @@ class AuthService:
       return False, None
 
     async def create_or_update_user(self, user_info: Dict) -> User:
-        """Create or update user from Google OAuth info"""
-        try:
-            # Check if user is allowed
-            is_allowed, approval_type = await self.is_user_allowed(user_info['email'])
-            if not is_allowed:
-                raise ValueError("Email domain not authorized. Only @stanford.edu emails or manually approved users are allowed.")
+      """Create or update user from Google OAuth info"""
+      try:
+          # First try to find user by email
+          stmt = select(User).where(User.email == user_info['email'])
+          result = await self.db.execute(stmt)
+          user = result.scalar_one_or_none()
 
-            # Check if user exists
-            stmt = select(User).where(User.google_id == user_info['google_id'])
-            result = await self.db.execute(stmt)
-            user = result.scalar_one_or_none()
+          if user:
+              # Update existing user with Google info
+              user.google_id = user_info['google_id']
+              user.last_login = datetime.utcnow()
+              user.name = user_info['name']
+          else:
+              # Create new user
+              is_allowed, approval_type = await self.is_user_allowed(user_info['email'])
+              if not is_allowed:
+                  raise ValueError("Email domain not authorized. Only @stanford.edu emails or manually approved users are allowed.")
 
-            if user:
-                # Update existing user
-                user.last_login = datetime.utcnow()
-                user.name = user_info['name']
-                user.email = user_info['email']
-                user.is_approved = True
-                user.approval_type = approval_type
-            else:
-                # Create new user
-                user = User(
-                    google_id=user_info['google_id'],
-                    email=user_info['email'],
-                    name=user_info['name'],
-                    is_approved=True,
-                    approval_type=approval_type
-                )
-                self.db.add(user)
+              user = User(
+                  google_id=user_info['google_id'],
+                  email=user_info['email'],
+                  name=user_info['name'],
+                  is_approved=True,
+                  approval_type=approval_type,
+                  is_admin=False
+              )
+              self.db.add(user)
 
-            await self.db.commit()
-            await self.db.refresh(user)
-            return user
+          await self.db.commit()
+          await self.db.refresh(user)
+          return user
 
-        except Exception as e:
-            logger.error(f"Error creating/updating user: {e}")
-            await self.db.rollback()
-            raise
+      except Exception as e:
+          logger.error(f"Error creating/updating user: {e}")
+          await self.db.rollback()
+          raise
 
     def create_jwt_token(self, user_id: str) -> Dict[str, str]:
         """Create JWT token for user"""

@@ -79,7 +79,8 @@ async def get_current_user_or_none(
     document_id: Optional[str] = None,
     auth_service: AuthService = Depends(get_auth_service)
 ) -> Optional[User]:
-    """Get current user from JWT token, allowing None only for example documents."""
+    logger.info(f"get_current_user_or_none called with token: {token[:20] if token else None}")
+    logger.info(f"document_id: {document_id}")
     # If document_id provided and it's an example document, allow unauthenticated access
     if document_id is not None and document_id in settings.EXAMPLE_DOCUMENT_IDS:
         return None
@@ -107,7 +108,13 @@ async def get_user_documents(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all documents for the current user or example documents if not authenticated"""
+    logger.info("get_user_documents called")  # Add this
+    logger.info(f"Request headers: {request.headers}")  # And this - you'll need to add Request param
+    logger.info(f"Current user: {current_user}")
+
     if current_user is None:
+        logger.info("No authenticated user, returning example documents")
+        # Rest of the code...
         # Get example documents from database
         result = await db.execute(
             select(Document).where(Document.id.in_(settings.EXAMPLE_DOCUMENT_IDS))

@@ -40,6 +40,7 @@ PyJWT==2.8.0
 # Logging and Monitoring
 loguru==0.7.2
 psutil==5.9.6
+os
 
 # Testing
 pytest==7.3.1

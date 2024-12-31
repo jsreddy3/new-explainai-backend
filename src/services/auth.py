@@ -118,14 +118,18 @@ class AuthService:
             raise
 
     async def verify_jwt_token(self, token: str) -> Optional[str]:
-        """Verify JWT token and return user_id if valid"""
-        try:
-            payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
-            return payload['user_id']
-        except jwt.ExpiredSignatureError:
-            raise ValueError("Token has expired")
-        except jwt.InvalidTokenError:
-            raise ValueError("Invalid token")
+      """Verify JWT token and return user_id if valid"""
+      try:
+          logger.info("Attempting to verify JWT token")
+          payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
+          logger.info(f"Successfully decoded token for user_id: {payload['user_id']}")
+          return payload['user_id']
+      except jwt.ExpiredSignatureError:
+          logger.error("Token has expired")
+          raise ValueError("Token has expired")
+      except jwt.InvalidTokenError as e:
+          logger.error(f"Invalid token: {str(e)}")
+          raise ValueError("Invalid token")
 
     async def get_current_user(self, token: str) -> Optional[User]:
       """Get current user from JWT token"""

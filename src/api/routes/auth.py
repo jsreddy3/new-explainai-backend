@@ -146,31 +146,6 @@ async def get_user_cost(
 ):
     """Get accumulated cost for the current user"""
     try:
-        # Get fresh user data from database to ensure we have latest cost
-        result = await db.execute(
-            select(User).where(User.id == current_user.id)
-        )
-        user = result.scalar_one()
-        
-        return {
-            "user_id": str(user.id),
-            "total_cost": float(user.user_cost),
-            "formatted_cost": f"${float(user.user_cost):.10f}"
-        }
-    except Exception as e:
-        logger.error(f"Failed to get user cost: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to retrieve user cost information"
-        )
-
-@router.get("/auth/me/cost")
-async def get_user_cost(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get accumulated cost for the current user"""
-    try:
         result = await db.execute(
             select(User).where(User.id == current_user.id)
         )
@@ -188,6 +163,91 @@ async def get_user_cost(
             detail="Failed to retrieve user cost information"
         )
 
+@router.post("/auth/approve-user")
+async def approve_user(
+    email: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Approve a user for access"""
+    # First check if current user is admin
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Find the user to approve
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User with email {email} not found")
+    
+    # Update approval status
+    user.is_approved = True
+    user.approval_type = "manual"
+    await db.commit()
+    
+    return {"message": f"User {email} approved"}
+
+@router.get("/auth/approved-users")
+async def list_approved_users(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all manually approved users"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.execute(
+        select(User).where(
+            and_(
+                User.is_approved == True,
+                User.approval_type == "manual"
+            )
+        )
+    )
+    users = result.scalars().all()
+    
+    return [
+        {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "created_at": user.created_at.isoformat(),
+            "last_login": user.last_login.isoformat() if user.last_login else None
+        }
+        for user in users
+    ]
+
+@router.delete("/auth/approve-user/{email}")
+async def remove_user_approval(
+    email: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove manual approval for a user"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.approval_type == "manual":
+        user.is_approved = False
+        user.approval_type = None
+        await db.commit()
+        return {"message": f"Approval removed for user {email}"}
+    else:
+        raise HTTPException(
+            status_code=400, 
+            detail="Can only remove manual approvals"
+        )
 
 @router.get("/auth/config")
 async def get_auth_config():

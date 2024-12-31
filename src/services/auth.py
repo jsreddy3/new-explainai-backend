@@ -22,10 +22,6 @@ class AuthService:
         self.jwt_secret = settings.JWT_SECRET
         self.jwt_algorithm = "HS256"
         self.jwt_expiration = 24  # hours
-        # List of manually approved emails
-        self.approved_emails = {
-            "jaidenreddy@gmail.com",  # Add your email as pre-approved
-        }
 
     async def verify_google_token(self, token: str) -> Dict:
         """Verify Google OAuth token and return user info"""
@@ -46,17 +42,21 @@ class AuthService:
             raise ValueError("Invalid token")
 
     async def is_user_allowed(self, email: str) -> tuple[bool, Optional[str]]:
-        """Check if user is allowed to access the system.
-        Returns (is_allowed, approval_type)"""
-        # Check if email is manually approved
-        if email in self.approved_emails:
-            return True, "manual"
-        
-        # Check if email is from Stanford domain
-        if email.endswith("@stanford.edu"):
-            return True, "stanford"
-        
-        return False, None
+      """Check if user is allowed to access the system.
+      Returns (is_allowed, approval_type)"""
+      # Check if any existing user with this email is already approved
+      stmt = select(User).where(User.email == email)
+      result = await self.db.execute(stmt)
+      existing_user = result.scalar_one_or_none()
+      
+      if (existing_user and existing_user.is_approved) or (existing_user and existing_user.is_admin):
+          return True, existing_user.approval_type
+      
+      # For new users, check Stanford domain
+      if email.endswith("@stanford.edu"):
+          return True, "stanford"
+      
+      return False, None
 
     async def create_or_update_user(self, user_info: Dict) -> User:
         """Create or update user from Google OAuth info"""

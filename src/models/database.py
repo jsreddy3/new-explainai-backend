@@ -24,6 +24,7 @@ class User(Base):
     cost_limit = Column(Float, default=3.0)  # Default $3 limit
     is_approved = Column(Boolean, default=False)  # Whether user is manually approved
     approval_type = Column(String, nullable=True)  # 'stanford' or 'manual'
+    is_admin = Column(Boolean, default=False)
 
     # Add relationship to documents
     documents = relationship("Document", back_populates="owner")

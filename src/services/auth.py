@@ -128,12 +128,15 @@ class AuthService:
             raise ValueError("Invalid token")
 
     async def get_current_user(self, token: str) -> Optional[User]:
-        """Get current user from JWT token"""
-        try:
-            user_id = await self.verify_jwt_token(token)
-            stmt = select(User).where(User.id == user_id)
-            result = await self.db.execute(stmt)
-            return result.scalar_one_or_none()
-        except Exception as e:
-            logger.error(f"Error getting current user: {e}")
-            raise
+      """Get current user from JWT token"""
+      try:
+          user_id = await self.verify_jwt_token(token)
+          logger.info(f"Verified token for user_id: {user_id}")
+          stmt = select(User).where(User.id == user_id)
+          result = await self.db.execute(stmt)
+          user = result.scalar_one_or_none()
+          logger.info(f"Found user: {user is not None}")
+          return user
+      except Exception as e:
+          logger.error(f"Error getting current user: {e}")
+          raise

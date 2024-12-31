@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request, Query, Body
+from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -186,33 +186,6 @@ async def get_user_cost(
             detail="Failed to retrieve user cost information"
         )
 
-
-@router.post("/auth/admin/approve-email")
-async def approve_email(
-    email: str = Body(..., embed=True),
-    current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
-):
-    """Approve an email for access (admin only)"""
-    # Only allow the admin (you) to approve emails
-    if current_user.email != "jaidenreddy@gmail.com":
-        raise HTTPException(status_code=403, detail="Not authorized to approve emails")
-    
-    # Add email to approved list
-    auth_service.approved_emails.add(email)
-    
-    return {"message": f"Email {email} approved successfully"}
-
-@router.get("/auth/admin/approved-emails")
-async def get_approved_emails(
-    current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
-):
-    """Get list of manually approved emails (admin only)"""
-    if current_user.email != "jaidenreddy@gmail.com":
-        raise HTTPException(status_code=403, detail="Not authorized to view approved emails")
-    
-    return {"approved_emails": list(auth_service.approved_emails)}
 
 @router.get("/auth/config")
 async def get_auth_config():

@@ -42,17 +42,16 @@ class AuthService:
             raise ValueError("Invalid token")
 
     async def is_user_allowed(self, email: str) -> tuple[bool, Optional[str]]:
-      """Check if user is allowed to access the system.
-      Returns (is_allowed, approval_type)"""
-      # Check if any existing user with this email is already approved
+      """Check if user is allowed to access the system."""
       stmt = select(User).where(User.email == email)
       result = await self.db.execute(stmt)
       existing_user = result.scalar_one_or_none()
       
-      if (existing_user and existing_user.is_approved) or (existing_user and existing_user.is_admin):
-          return True, existing_user.approval_type
+      if existing_user:  # Add this check
+          logger.info("User email and allowance: %s, %s", email, existing_user.is_approved)
+          if existing_user.is_approved or existing_user.is_admin:
+              return True, existing_user.approval_type
       
-      logger.info("User email and allowance: %s, %s", email, existing_user.is_approved)
       # For new users, check Stanford domain
       if email.endswith("@stanford.edu"):
           return True, "stanford"
@@ -138,11 +137,15 @@ class AuthService:
           stmt = select(User).where(User.id == user_id)
           result = await self.db.execute(stmt)
           user = result.scalar_one_or_none()
+          
+          if not user:
+              raise ValueError("User not found")
+              
           logger.info(f"Found user: {user is not None}, user approval: {user.is_approved}")
-          if (user.is_approved or user.is_admin):
-            return user
-          else:
-            raise ValueError("User is not approved")
+          if not (user.is_approved or user.is_admin):
+              raise ValueError("Account pending approval. Please contact administrator.")
+              
+          return user
       except Exception as e:
           logger.error(f"Error getting current user: {e}")
           raise

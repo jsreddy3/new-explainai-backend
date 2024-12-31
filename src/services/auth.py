@@ -52,6 +52,7 @@ class AuthService:
       if (existing_user and existing_user.is_approved) or (existing_user and existing_user.is_admin):
           return True, existing_user.approval_type
       
+      logger.info("User email and allowance: %s, %s", email, existing_user.is_approved)
       # For new users, check Stanford domain
       if email.endswith("@stanford.edu"):
           return True, "stanford"
@@ -137,8 +138,11 @@ class AuthService:
           stmt = select(User).where(User.id == user_id)
           result = await self.db.execute(stmt)
           user = result.scalar_one_or_none()
-          logger.info(f"Found user: {user is not None}")
-          return user
+          logger.info(f"Found user: {user is not None}, user approval: {user.is_approved}")
+          if (user.is_approved or user.is_admin):
+            return user
+          else:
+            raise ValueError("User is not approved")
       except Exception as e:
           logger.error(f"Error getting current user: {e}")
           raise

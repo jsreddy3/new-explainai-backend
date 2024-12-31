@@ -4,8 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 from typing import Optional, Dict
 from src.core.logging import setup_logger
+
+class ApproveUserRequest(BaseModel):
+    email: str
 
 logger = setup_logger(__name__)
 
@@ -166,7 +170,7 @@ async def get_user_cost(
 
 @router.post("/auth/approve-user")
 async def approve_user(
-    email: str,
+    request: ApproveUserRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -177,19 +181,19 @@ async def approve_user(
     
     # Find the user to approve
     result = await db.execute(
-        select(User).where(User.email == email)
+        select(User).where(User.email == request.email)
     )
     user = result.scalar_one_or_none()
     
     if not user:
-        raise HTTPException(status_code=404, detail=f"User with email {email} not found")
+        raise HTTPException(status_code=404, detail=f"User with email {request.email} not found")
     
     # Update approval status
     user.is_approved = True
     user.approval_type = "manual"
     await db.commit()
     
-    return {"message": f"User {email} approved"}
+    return {"message": f"User {request.email} approved"}
 
 @router.get("/auth/approved-users")
 async def list_approved_users(

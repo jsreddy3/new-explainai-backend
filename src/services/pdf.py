@@ -35,7 +35,7 @@ class PDFService:
     def __init__(self):
         self.max_file_size = MAX_FILE_SIZE
         self.upload_progress = {}  # {user_id:filename -> {total: int, processed: int}}
-        genai.configure(api_key=settings.gemini_api_key)
+        genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel("gemini-1.5-flash")
 
     async def validate_file(self, file: UploadFile) -> None:

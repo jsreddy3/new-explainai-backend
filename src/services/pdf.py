@@ -31,7 +31,7 @@ class PDFResponse(BaseModel):
     text: str
     chunks: List[str]
 
-class GeminiPDFService:
+class PDFService:
     def __init__(self):
         self.max_file_size = MAX_FILE_SIZE
         self.upload_progress = {}  # {user_id:filename -> {total: int, processed: int}}

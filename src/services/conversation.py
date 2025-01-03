@@ -243,7 +243,7 @@ class ConversationService:
             conversation_id = event.data["conversation_id"]
             content = event.data["content"]
             chunk_id = event.data["chunk_id"]
-            user = event.data.get("user")  # Get user from event data
+            user = event.data.get("user", None)  # Get user from event data
             
             # Check cost limit first if user exists
             logger.info("Checking user cost limit for user: %s", user.id if user else "None")
@@ -335,7 +335,7 @@ class ConversationService:
             data = event.data
             conversation_id = data["conversation_id"]
             document_id = event.data["document_id"]
-            user = event.data.get("user")
+            user = event.data.get("user", None)
             
             # Check cost limit first if user exists
             if user:

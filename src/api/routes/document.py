@@ -13,7 +13,7 @@ from src.services.pdf import PDFService
 from src.core.events import event_bus, Event
 from src.core.logging import setup_logger
 from src.core.websocket_manager import manager
-from src.models.database import Document, DocumentChunk, Conversation, Message
+from src.models.database import Document, DocumentChunk, Conversation, Message, Question
 from ..routes.auth import get_current_user, get_current_user_or_none, User
 from ...services.auth import AuthService
 from ...core.config import settings

@@ -173,6 +173,20 @@ class ConversationService:
             
             await db.commit()
             logger.info(f"Created new main conversation for connection {event.connection_id}")
+
+            # Generate initial questions after creation
+            questions_request_id = f"{event.request_id}_questions"
+            await self.handle_generate_questions(Event(
+                type="conversation.questions.generate.requested",
+                document_id=document_id,
+                connection_id=event.connection_id,
+                request_id=questions_request_id,
+                data={
+                    "conversation_id": str(conversation["id"]),
+                    "user": event.data.get("user", None)
+                }
+            ), db)
+
             await event_bus.emit(Event(
                 type="conversation.main.create.completed",
                 document_id=document_id,
@@ -232,6 +246,18 @@ class ConversationService:
             )
             
             await db.commit()
+
+            questions_request_id = f"{event.request_id}_questions"
+            await self.handle_generate_questions(Event(
+                type="conversation.questions.generate.requested",
+                document_id=document_id,
+                connection_id=event.connection_id,
+                request_id=questions_request_id,
+                data={
+                    "conversation_id": str(conversation["id"]),
+                    "user": event.data.get("user", None)
+                }
+            ), db)
             
             await event_bus.emit(Event(
                 type="conversation.chunk.create.completed",

@@ -146,7 +146,16 @@ class AIService:
             # Parse questions from response
             content = response.choices[0].message["content"]
             logger.info("Generated questions: " + content)
-            questions = [q.strip() for q in content.split('\n') if q.strip()]
+
+            # Extract just the numbered questions
+            questions = []
+            for line in content.split('\n'):
+                line = line.strip()
+                # Match lines that start with a number followed by period
+                if line and line[0].isdigit() and '. ' in line:
+                    # Remove the number and period at start
+                    question = line[line.index('. ') + 2:]
+                    questions.append(question)
             cost = completion_cost(
                 model=self.MODEL,
                 messages=messages,

@@ -81,11 +81,16 @@ Your role is to:
 3. Cover different analytical angles
 4. Progress from specific to general
 5. Stay as concise as possible while still remaining effective
-6.Word count is at a premium"""
+6.Word count is at a premium
+"""
 
-MAIN_QUESTION_USER_PROMPT = """Please generate {count} insightful questions."""
+MAIN_QUESTION_USER_PROMPT = """Please generate {count} insightful questions. Format your response as a numbered list of questions only. Each question should start with a number followed by a period and space (e.g. "1. "). Do not include any introductory or concluding text.
 
-HIGHLIGHT_QUESTION_USER_PROMPT = """Please generate {count} insightful questions."""
+Questions:"""
+
+HIGHLIGHT_QUESTION_USER_PROMPT = """Please generate {count} insightful questions. Format your response as a numbered list of questions only. Each question should start with a number followed by a period and space (e.g. "1. "). Do not include any introductory or concluding text.
+
+Questions:"""
 
 # Summary prompts
 SUMMARY_SYSTEM_PROMPT = """You are an expert at synthesizing complex discussions about document content into clear, contextual summaries.

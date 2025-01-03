@@ -131,26 +131,25 @@ class PDFService:
 
     async def process_pdf_with_gemini(self, content: bytes) -> str:
         """Process PDF content in parallel using page units"""
+        start = time.time()
         pdf_doc = fitz.open(stream=content, filetype="pdf")
-        total_pages = min(len(pdf_doc), MAX_PAGES)
+        logger.info(f"PDF open time: {time.time() - start}")
         
-        # Calculate number of units needed
+        total_pages = min(len(pdf_doc), MAX_PAGES)
         num_units = (total_pages + PAGES_PER_UNIT - 1) // PAGES_PER_UNIT
         
-        # Create processing tasks for each unit
         tasks = []
+        unit_start = time.time()
         for i in range(num_units):
             start_page = i * PAGES_PER_UNIT
-            unit_content = self.create_page_unit(
-                pdf_doc, 
-                start_page, 
-                min(PAGES_PER_UNIT, total_pages - start_page)
-            )
+            unit_content = self.create_page_unit(...)
             tasks.append(self.process_page_unit(unit_content, i))
+        logger.info(f"Unit creation time: {time.time() - unit_start}")
         
-        # Process all units in parallel
+        api_start = time.time()
         try:
             results = await asyncio.gather(*tasks)
+            logger.info(f"API processing time: {time.time() - api_start}")
             pdf_doc.close()
             
             # Combine results, preserving order

@@ -279,7 +279,7 @@ async def get_upload_progress(
         "filename": filename,
         "total_chunks": 0,
         "processed_chunks": 0,
-        "is_complete": False,
+        "is_complete": True,
     }
 
 @router.post("/documents/upload")

@@ -939,10 +939,10 @@ class ConversationService:
             self.active_tasks.clear()
             
             # Reset semaphore 
-            while True:
-                try:
-                    self.semaphore.release()
-                except ValueError:
-                    break
+            # while True:
+            #     try:
+            #         self.semaphore.release()
+            #     except ValueError:
+            #         break
         except Exception as e:
             logger.error(f"Error during task cleanup: {e}")

@@ -24,7 +24,19 @@ MINIMUM_TEXT_LENGTH = 10
 PAGES_PER_UNIT = 1  # Process 4 pages at a time
 
 # Prompt optimized based on our testing
-GEMINI_PROMPT = """Extract just the main content of this document, preserving its original formatting and structure. Ignore headers, footers, and metadata. Maintain all paragraph breaks and line formatting exactly as they appear in the content. (Do not use double dots "..", use ".")"""
+GEMINI_PROMPT = """Extract EVERY WORD of the main content, making sure to include ALL text from start to finish. Do not skip or omit any content.
+
+Rules:
+1. Include EVERY single paragraph and sentence, from the very first word to the very last word
+2. Preserve the original formatting and structure exactly
+3. Maintain all paragraph breaks and line formatting exactly as they appear
+4. Ignore headers, footers, and metadata
+5. Never truncate or skip any portion of the text
+6. Do not use double dots "..", use single dots "."
+7. Make sure the last paragraph is complete and not cut off
+8. Output the entire text without any summarization or omission
+
+Output the complete text, preserving everything from beginning to end."""
 
 class PDFResponse(BaseModel):
     success: bool

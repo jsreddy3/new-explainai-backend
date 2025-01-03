@@ -16,14 +16,19 @@ elif DATABASE_URL.startswith('postgresql://'):
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    future=True
+    future=True,
+    pool_size=20,  # Allow up to 20 concurrent connections
+    max_overflow=10,  # Allow up to 10 additional temporary connections
+    pool_timeout=30,  # How long to wait for a connection from pool
+    pool_pre_ping=True,  # Verify connections are still valid before using
+    pool_recycle=3600,  # Recycle connections after 1 hour
 )
 
 # Create async sessionmaker
 AsyncSessionLocal = sessionmaker(
     engine,
     class_=AsyncSession,
-    expire_on_commit=True
+    expire_on_commit=False  # Changed from True
 )
 
 # Create base class for declarative models

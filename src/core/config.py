@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     EXAMPLE_DOCUMENT_IDS: list = [
         "2ee4de4e-2813-47d5-bbea-1863a5d86242",  # Declaration of Independence - SOEMTHING'S WRONG HERE LOL
         "03db4281-0ccf-4ad7-9b54-a17698e28b7a",  # How is Inflation Measured?
-        "e5dd251a-3838-48e6-b1ab-cab830b0e892",   # Lord of the Rings
-        "68354321-f13b-4acd-9c1c-14d08dc7a9f5",
+        "e5dd251a-3838-48e6-b1ab-cab830b0e892",  # Lord of the Rings
+        "68354321-f13b-4acd-9c1c-14d08dc7a9f5",  # Stopping by the Woods on a Swowy Evening
         "3ca86b77-c1f3-42d2-b9f0-4e88246d5c61", #Declaration of Independence
     ]
 

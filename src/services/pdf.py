@@ -24,7 +24,7 @@ MINIMUM_TEXT_LENGTH = 10
 PAGES_PER_UNIT = 1  # Process 4 pages at a time
 
 # Prompt optimized based on our testing
-GEMINI_PROMPT = """Extract just the main content of this document, preserving its original formatting and structure. Ignore headers, footers, and metadata. Maintain all paragraph breaks and line formatting exactly as they appear in the content."""
+GEMINI_PROMPT = """Extract just the main content of this document, preserving its original formatting and structure. Ignore headers, footers, and metadata. Maintain all paragraph breaks and line formatting exactly as they appear in the content. (Do not use double dots "..", use ".")"""
 
 class PDFResponse(BaseModel):
     success: bool

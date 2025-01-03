@@ -142,7 +142,11 @@ class PDFService:
         unit_start = time.time()
         for i in range(num_units):
             start_page = i * PAGES_PER_UNIT
-            unit_content = self.create_page_unit(...)
+            unit_content = await self.create_page_unit(  # Note the await here
+                pdf_doc=pdf_doc,
+                start_page=start_page,
+                num_pages=min(PAGES_PER_UNIT, total_pages - start_page)
+            )
             tasks.append(self.process_page_unit(unit_content, i))
         logger.info(f"Unit creation time: {time.time() - unit_start}")
         

@@ -56,7 +56,7 @@ class AIService:
                 # Extract content from the chunk
                 content = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
 
-                print("Emitting chat token with request id: ", request_id)
+                # print("Emitting chat token with request id: ", request_id)
                 
                 await event_bus.emit(Event(
                     type="chat.token",

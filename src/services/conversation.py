@@ -179,6 +179,7 @@ class ConversationService:
             await self.handle_generate_questions(Event(
                 type="conversation.questions.generate.requested",
                 connection_id=event.connection_id,
+                document_id=document_id,
                 request_id=questions_request_id,
                 data={
                     "conversation_id": str(conversation["id"]),
@@ -252,6 +253,7 @@ class ConversationService:
                 type="conversation.questions.generate.requested",
                 connection_id=event.connection_id,
                 request_id=questions_request_id,
+                document_id=document_id,
                 data={
                     "conversation_id": str(conversation["id"]),
                     "user": event.data.get("user", None),

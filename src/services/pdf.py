@@ -21,7 +21,7 @@ MAX_PAGES = 8  # Limit number of pages
 CHUNK_SIZE = 2500  # Characters per chunk
 MAX_CHUNKS = 16
 MINIMUM_TEXT_LENGTH = 10
-PAGES_PER_UNIT = 4  # Process 4 pages at a time
+PAGES_PER_UNIT = 0.5  # Process 4 pages at a time
 
 # Prompt optimized based on our testing
 GEMINI_PROMPT = """Extract just the main content of this document, preserving its original formatting and structure. Ignore headers, footers, and metadata. Maintain all paragraph breaks and line formatting exactly as they appear in the content."""

@@ -84,13 +84,13 @@ Your role is to:
 6.Word count is at a premium
 """
 
-MAIN_QUESTION_USER_PROMPT = """Please generate {count} insightful questions. Format your response as a numbered list of questions only. Each question should start with a number followed by a period and space (e.g. "1. "). Do not include any introductory or concluding text.
+MAIN_QUESTION_USER_PROMPT = """Please generate {count} insightful questions. Format your response as a numbered list of questions only. Each question should start with a number followed by a period and space (e.g. "1. "). Do not include any introductory or concluding text. Be concise.
 
 Questions:"""
 
-HIGHLIGHT_QUESTION_USER_PROMPT = """Please generate {count} insightful questions. Format your response as a numbered list of questions only. Each question should start with a number followed by a period and space (e.g. "1. "). Do not include any introductory or concluding text.
+HIGHLIGHT_QUESTION_USER_PROMPT = """Please generate {count} insightful questions. Format your response as a numbered list of questions only. Each question should start with a number followed by a period and space (e.g. "1. "). Do not include any introductory or concluding text. Be concise.
 
-Questions:"""
+Questions:""""
 
 # Summary prompts
 SUMMARY_SYSTEM_PROMPT = """You are an expert at synthesizing complex discussions about document content into clear, contextual summaries.

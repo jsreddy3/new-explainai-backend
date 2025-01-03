@@ -10,7 +10,7 @@ import os
 
 logger = setup_logger(__name__)
 
-from ...models.database import User, Document, ApprovalRequest
+from ...models.database import User, Document, ApprovalRequest, Question
 from ...db.session import get_db
 from ...services.auth import AuthService
 from ...core.config import settings

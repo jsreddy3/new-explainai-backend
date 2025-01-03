@@ -546,31 +546,31 @@ class ConversationService:
             ))
 
     async def handle_list_questions(self, event: Event, db: AsyncSession):
-        try:
-            conversation_id = event.data["conversation_id"]
-            document_id = event.document_id
-            
-            questions = await self.get_conversation_questions_unanswered(conversation_id, db)
-            
-            await event_bus.emit(Event(
-                type="conversation.questions.list.completed",
-                document_id=document_id,
-                connection_id=event.connection_id,
-                request_id=event.request_id,
-                data={
-                    "conversation_id": conversation_id,
-                    "questions": [q.strip() for q in questions]
-                }
-            ))
-        except Exception as e:
-            logger.error(f"Error listing questions: {e}")
-            await event_bus.emit(Event(
-                type="conversation.questions.list.error",
-                document_id=document_id,
-                connection_id=event.connection_id,
-                request_id=event.request_id,
-                data={"error": str(e)}
-            ))
+      try:
+          conversation_id = event.data["conversation_id"]
+          document_id = event.document_id
+          questions = await self.get_conversation_questions_unanswered(conversation_id, db)
+          
+          # Assuming each question dictionary has a 'content' field
+          await event_bus.emit(Event(
+              type="conversation.questions.list.completed",
+              document_id=document_id,
+              connection_id=event.connection_id,
+              request_id=event.request_id,
+              data={
+                  "conversation_id": conversation_id,
+                  "questions": [q['content'].strip() for q in questions]  # Access the content field
+              }
+          ))
+      except Exception as e:
+          logger.error(f"Error listing questions: {e}")
+          await event_bus.emit(Event(
+              type="conversation.questions.list.error",
+              document_id=document_id,
+              connection_id=event.connection_id,
+              request_id=event.request_id,
+              data={"error": str(e)}
+          ))
 
     async def handle_get_conversations_by_sequence(self, event: Event, db: AsyncSession):
         """Get all conversations for a document that have a specific chunk sequence number"""

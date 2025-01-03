@@ -138,7 +138,7 @@ class AIService:
                 {"role": "user", "content": user_prompt}
             ]
             response = await acompletion(
-                model=self.MODEL,
+                model="gpt-4o",
                 messages=messages,
                 stream=False
             )

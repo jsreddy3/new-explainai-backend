@@ -551,7 +551,6 @@ class ConversationService:
           document_id = event.document_id
           questions = await self.get_conversation_questions_unanswered(conversation_id, db)
           
-          # Assuming each question dictionary has a 'content' field
           await event_bus.emit(Event(
               type="conversation.questions.list.completed",
               document_id=document_id,
@@ -559,7 +558,7 @@ class ConversationService:
               request_id=event.request_id,
               data={
                   "conversation_id": conversation_id,
-                  "questions": [q['content'].strip() for q in questions]  # Access the content field
+                  "questions": questions  # Send the full question objects
               }
           ))
       except Exception as e:

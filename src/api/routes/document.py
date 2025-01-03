@@ -410,7 +410,16 @@ async def delete_document(
                 detail="Not authorized to delete this document"
             )
             
-        # Delete associated messages first
+        # Delete associated questions first
+        await db.execute(
+            delete(Question).where(
+                Question.conversation_id.in_(
+                    select(Conversation.id).where(Conversation.document_id == document_id)
+                )
+            )
+        )
+
+        # Delete associated messages
         await db.execute(
             delete(Message).where(
                 Message.conversation_id.in_(
@@ -418,22 +427,22 @@ async def delete_document(
                 )
             )
         )
-        
+
         # Delete conversations
         await db.execute(
             delete(Conversation).where(Conversation.document_id == document_id)
         )
-        
+
         # Delete document chunks
         await db.execute(
             delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
         )
-        
+
         # Delete the document
         await db.execute(
             delete(Document).where(Document.id == document_id)
         )
-        
+                
         # Emit document deletion event
         await event_bus.emit(Event(
             type="document.deleted",

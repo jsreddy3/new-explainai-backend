@@ -144,7 +144,8 @@ class AIService:
             )
             
             # Parse questions from response
-            content = response.choices[0].message.content
+            content = response.choices[0].message["content"]
+            logger.info("Generated questions: " + content)
             questions = [q.strip() for q in content.split('\n') if q.strip()]
             cost = completion_cost(
                 model=self.MODEL,

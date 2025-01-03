@@ -273,13 +273,13 @@ async def get_upload_progress(
 ):
     """Get the progress of a document being uploaded"""
     tracking_key = f"{current_user.id}:{filename}"
-    progress = pdf_service.upload_progress.get(tracking_key, {})
+    # progress = pdf_service.upload_progress.get(tracking_key, {})
     
     return {
         "filename": filename,
-        "total_chunks": progress.get("total", 0),
-        "processed_chunks": progress.get("processed", 0),
-        "is_complete": tracking_key not in pdf_service.upload_progress
+        "total_chunks": 0,
+        "processed_chunks": 0,
+        "is_complete": False,
     }
 
 @router.post("/documents/upload")

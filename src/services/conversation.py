@@ -42,7 +42,7 @@ class ConversationService:
             # Task management
             self.task_queue = asyncio.Queue()
             self.active_tasks = set()
-            self.semaphore = asyncio.Semaphore(10)
+            # self.semaphore = asyncio.Semaphore(10)
             self.shutdown_event = asyncio.Event()
                 
             # Start processor
@@ -85,25 +85,25 @@ class ConversationService:
     async def _run_task(self, handler, event):
       try:
           async with timeout(25):  # Changed from asyncio.timeout(25)
-              async with self.semaphore:
-                  try:
-                      async with self.AsyncSessionLocal() as db:
-                          try:
-                              logger.info(f"Running task: {event.type}")
-                              await handler(event, db)
-                          except Exception as e:
-                              logger.error(f"Handler error: {e}")
-                          finally:
-                              await db.close()
-                  except Exception as e:
-                      logger.error(f"DB session error: {e}")
-                      self.semaphore.release()
+              # async with self.semaphore:
+                try:
+                    async with self.AsyncSessionLocal() as db:
+                        try:
+                            logger.info(f"Running task: {event.type}")
+                            await handler(event, db)
+                        except Exception as e:
+                            logger.error(f"Handler error: {e}")
+                        finally:
+                            await db.close()
+                except Exception as e:
+                    logger.error(f"DB session error: {e}")
+                      # self.semaphore.release()
       except TimeoutError:  # Changed from asyncio.TimeoutError
           logger.error(f"Task timed out: {event.type}")
-          self.semaphore.release()
+          # self.semaphore.release()
       except Exception as e:
           logger.error(f"Task execution error: {e}")
-          self.semaphore.release()
+          # self.semaphore.release()
 
     async def handle_create_main_conversation(self, event: Event, db: AsyncSession):
         try:
@@ -919,7 +919,7 @@ class ConversationService:
           # Check if task failed with exception
           if task.exception():
               logger.error(f"Task failed with: {task.exception()}")
-              self.semaphore.release()
+              # self.semaphore.release()
       except Exception as e:
           logger.error(f"Error cleaning up task: {e}")
 

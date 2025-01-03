@@ -116,14 +116,17 @@ class PDFService:
     async def process_page_unit(self, unit_content: bytes, unit_number: int) -> str:
         """Process a unit of pages with Gemini"""
         try:
+            start_time = time.time()
             pdf_data = base64.b64encode(unit_content).decode('utf-8')
-            response = self.model.generate_content([
+            response = await self.model.generate_content_async([
                 {
                     'mime_type': 'application/pdf',
                     'data': pdf_data
                 },
                 GEMINI_PROMPT
             ])
+            duration = time.time() - start_time
+            logger.info(f"Unit {unit_number} processed in {duration:.3f}s")
             return response.text.strip()
         except Exception as e:
             logger.error(f"Error processing unit {unit_number}: {str(e)}")

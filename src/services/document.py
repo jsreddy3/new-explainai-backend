@@ -4,6 +4,8 @@ from sqlalchemy import select
 import uuid
 import asyncio
 from sqlalchemy.orm import sessionmaker
+from asyncio import TimeoutError
+from async_timeout import timeout
 
 from ..models.database import Document, DocumentChunk
 from ..core.logging import setup_logger
@@ -71,7 +73,7 @@ class DocumentService:
 
     async def _run_task(self, handler, event):
       try:
-          async with asyncio.timeout(25):  # 25s timeout before Heroku's 30s limit
+          async with timeout(25):  # Changed from asyncio.timeout(25)
               async with self.semaphore:
                   try:
                       async with self.AsyncSessionLocal() as db:
@@ -85,7 +87,7 @@ class DocumentService:
                   except Exception as e:
                       logger.error(f"DB session error: {e}")
                       self.semaphore.release()
-      except asyncio.TimeoutError:
+      except TimeoutError:  # Changed from asyncio.TimeoutError
           logger.error(f"Task timed out: {event.type}")
           self.semaphore.release()
       except Exception as e:

@@ -7,6 +7,8 @@ from ..db.session import engine  # Add this if not already imported
 from sqlalchemy import select, and_
 import uuid
 from datetime import datetime
+from asyncio import TimeoutError
+from async_timeout import timeout
 
 from ..models.database import Document, DocumentChunk, Conversation, Message, Question, ConversationType, User
 from ..core.events import event_bus, Event
@@ -82,7 +84,7 @@ class ConversationService:
 
     async def _run_task(self, handler, event):
       try:
-          async with asyncio.timeout(25):  # 25s timeout (before Heroku's 30s)
+          async with timeout(25):  # Changed from asyncio.timeout(25)
               async with self.semaphore:
                   try:
                       async with self.AsyncSessionLocal() as db:
@@ -96,7 +98,7 @@ class ConversationService:
                   except Exception as e:
                       logger.error(f"DB session error: {e}")
                       self.semaphore.release()
-      except asyncio.TimeoutError:
+      except TimeoutError:  # Changed from asyncio.TimeoutError
           logger.error(f"Task timed out: {event.type}")
           self.semaphore.release()
       except Exception as e:

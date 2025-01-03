@@ -133,12 +133,13 @@ class AIService:
             user_prompt: Formatted user prompt
         """
         try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
             response = await acompletion(
                 model=self.MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                messages=messages,
                 stream=False
             )
             

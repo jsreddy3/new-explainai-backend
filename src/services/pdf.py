@@ -1,12 +1,13 @@
 from fastapi import UploadFile, HTTPException
 import base64
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import google.generativeai as genai
 from pydantic import BaseModel
 import time
 import fitz  # PyMuPDF for page counting
 from docx import Document
 import io
+import asyncio
 
 from src.core.config import Settings
 from src.core.logging import setup_logger
@@ -20,6 +21,7 @@ MAX_PAGES = 8  # Limit number of pages
 CHUNK_SIZE = 2500  # Characters per chunk
 MAX_CHUNKS = 16
 MINIMUM_TEXT_LENGTH = 10
+PAGES_PER_UNIT = 2  # Process 2 pages at a time
 
 # Prompt optimized based on our testing
 GEMINI_PROMPT = """Extract just the main content of this document, preserving its original formatting and structure. Ignore headers, footers, and metadata. Maintain all paragraph breaks and line formatting exactly as they appear in the content."""
@@ -101,34 +103,61 @@ class PDFService:
 
         return chunks[:MAX_CHUNKS]  # Limit number of chunks
 
+    def create_page_unit(self, pdf_doc: fitz.Document, start_page: int, num_pages: int) -> bytes:
+        """Create a PDF containing a specific range of pages"""
+        new_pdf = fitz.open()
+        for i in range(num_pages):
+            if start_page + i < len(pdf_doc):
+                new_pdf.insert_pdf(pdf_doc, from_page=start_page + i, to_page=start_page + i)
+        content = new_pdf.write()
+        new_pdf.close()
+        return content
+
+    async def process_page_unit(self, unit_content: bytes, unit_number: int) -> str:
+        """Process a unit of pages with Gemini"""
+        try:
+            pdf_data = base64.b64encode(unit_content).decode('utf-8')
+            response = self.model.generate_content([
+                {
+                    'mime_type': 'application/pdf',
+                    'data': pdf_data
+                },
+                GEMINI_PROMPT
+            ])
+            return response.text.strip()
+        except Exception as e:
+            logger.error(f"Error processing unit {unit_number}: {str(e)}")
+            raise
+
     async def process_pdf_with_gemini(self, content: bytes) -> str:
-        """Process PDF content using Gemini API, limiting to MAX_PAGES"""
-        # First, count pages using PyMuPDF
+        """Process PDF content in parallel using page units"""
         pdf_doc = fitz.open(stream=content, filetype="pdf")
-        total_pages = len(pdf_doc)
+        total_pages = min(len(pdf_doc), MAX_PAGES)
         
-        if total_pages > MAX_PAGES:
-            logger.info(f"PDF has {total_pages} pages, truncating to first {MAX_PAGES} pages")
-            # Create new PDF with only MAX_PAGES
-            new_pdf = fitz.open()
-            for i in range(MAX_PAGES):
-                new_pdf.insert_pdf(pdf_doc, from_page=i, to_page=i)
-            content = new_pdf.write()
-            new_pdf.close()
+        # Calculate number of units needed
+        num_units = (total_pages + PAGES_PER_UNIT - 1) // PAGES_PER_UNIT
         
-        pdf_doc.close()
+        # Create processing tasks for each unit
+        tasks = []
+        for i in range(num_units):
+            start_page = i * PAGES_PER_UNIT
+            unit_content = self.create_page_unit(
+                pdf_doc, 
+                start_page, 
+                min(PAGES_PER_UNIT, total_pages - start_page)
+            )
+            tasks.append(self.process_page_unit(unit_content, i))
         
-        # Process with Gemini
-        pdf_data = base64.b64encode(content).decode('utf-8')
-        response = self.model.generate_content([
-            {
-                'mime_type': 'application/pdf',
-                'data': pdf_data
-            },
-            GEMINI_PROMPT
-        ])
-        
-        return response.text.strip()
+        # Process all units in parallel
+        try:
+            results = await asyncio.gather(*tasks)
+            pdf_doc.close()
+            
+            # Combine results, preserving order
+            return ' '.join(result for result in results if result)
+        except Exception as e:
+            pdf_doc.close()
+            raise e
 
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
         """Process document file and return structured response"""

@@ -178,12 +178,12 @@ class ConversationService:
             questions_request_id = f"{event.request_id}_questions"
             await self.handle_generate_questions(Event(
                 type="conversation.questions.generate.requested",
-                document_id=document_id,
                 connection_id=event.connection_id,
                 request_id=questions_request_id,
                 data={
                     "conversation_id": str(conversation["id"]),
-                    "user": event.data.get("user", None)
+                    "user": event.data.get("user", None),
+                    "document_id": document_id,
                 }
             ), db)
 
@@ -250,12 +250,12 @@ class ConversationService:
             questions_request_id = f"{event.request_id}_questions"
             await self.handle_generate_questions(Event(
                 type="conversation.questions.generate.requested",
-                document_id=document_id,
                 connection_id=event.connection_id,
                 request_id=questions_request_id,
                 data={
                     "conversation_id": str(conversation["id"]),
-                    "user": event.data.get("user", None)
+                    "user": event.data.get("user", None),
+                    "document_id": document_id
                 }
             ), db)
             
@@ -388,8 +388,8 @@ class ConversationService:
         try:
             data = event.data
             conversation_id = data["conversation_id"]
-            document_id = event.data["document_id"]
-            user = event.data.get("user", None)
+            document_id = data["document_id"]
+            user = data.get("user", None)
             
             # Check cost limit first if user exists
             if user:

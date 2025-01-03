@@ -55,30 +55,42 @@ class DocumentService:
         return wrapper
 
     async def _process_tasks(self):
-        while not self.shutdown_event.is_set():
-            try:
-                handler, event = await self.task_queue.get()
-                task = asyncio.create_task(self._run_task(handler, event))
-                self.active_tasks.add(task)
-                task.add_done_callback(self.active_tasks.discard)
-                self.task_queue.task_done()  # Mark task as done after creating it
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Task processor error: {e}")
+      while not self.shutdown_event.is_set():
+          try:
+              handler, event = await self.task_queue.get()
+              task = asyncio.create_task(self._run_task(handler, event))
+              self.active_tasks.add(task)
+              task.add_done_callback(self._cleanup_task)
+              self.task_queue.task_done()
+          except asyncio.CancelledError:
+              break
+          except Exception as e:
+              logger.error(f"Task processor error: {e}")
+      
+      await self._cleanup_all_tasks()
 
     async def _run_task(self, handler, event):
-        try:
-            async with self.semaphore:
-                async with self.AsyncSessionLocal() as db:
-                    try:
-                        await handler(event, db)
-                    except Exception as e:
-                        logger.error(f"Handler error: {e}")
-                    finally:
-                        await db.close()
-        except Exception as e:
-            logger.error(f"Task execution error: {e}")
+      try:
+          async with asyncio.timeout(25):  # 25s timeout before Heroku's 30s limit
+              async with self.semaphore:
+                  try:
+                      async with self.AsyncSessionLocal() as db:
+                          try:
+                              logger.info(f"Running task: {event.type}")
+                              await handler(event, db)
+                          except Exception as e:
+                              logger.error(f"Handler error: {e}")
+                          finally:
+                              await db.close()
+                  except Exception as e:
+                      logger.error(f"DB session error: {e}")
+                      self.semaphore.release()
+      except asyncio.TimeoutError:
+          logger.error(f"Task timed out: {event.type}")
+          self.semaphore.release()
+      except Exception as e:
+          logger.error(f"Task execution error: {e}")
+          self.semaphore.release()
 
     async def handle_list_chunks(self, event: Event, db: AsyncSession):
         try:
@@ -306,5 +318,36 @@ class DocumentService:
             except asyncio.CancelledError:
                 pass
 
-        if self.active_tasks:
-            await asyncio.gather(*self.active_tasks, return_exceptions=True)
+        await self._cleanup_all_tasks()
+
+    def _cleanup_task(self, task):
+      try:
+          self.active_tasks.discard(task)
+          if task.exception():
+              logger.error(f"Task failed with: {task.exception()}")
+              self.semaphore.release()
+      except Exception as e:
+          logger.error(f"Error cleaning up task: {e}")
+
+    async def _cleanup_all_tasks(self):
+        logger.info(f"Cleaning up {len(self.active_tasks)} active tasks")
+        try:
+            # Cancel all active tasks
+            for task in self.active_tasks:
+                task.cancel()
+            
+            # Wait for all tasks to complete
+            if self.active_tasks:
+                await asyncio.gather(*self.active_tasks, return_exceptions=True)
+            
+            # Clear active tasks set
+            self.active_tasks.clear()
+            
+            # Reset semaphore
+            while True:
+                try:
+                    self.semaphore.release()
+                except ValueError:
+                    break
+        except Exception as e:
+            logger.error(f"Error during task cleanup: {e}")

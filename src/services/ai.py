@@ -12,9 +12,8 @@ from src.services.cost import check_user_cost_limit
 logger = setup_logger(__name__)
 
 class AIService:
-    # MODEL = "gpt-4o"
     CHAT_MODEL = "anthropic/claude-3-5-sonnet-20241022"
-    SUGGESTED_QUESTION_MODEL = "anthropic/claude-3-5-sonnet-20241022"
+    SUGGESTED_QUESTION_MODEL = "gpt-4o"
     SUMMARY_MODEL = "anthropic/claude-3-5-sonnet-20241022"
     
     def __init__(self):
@@ -140,7 +139,7 @@ class AIService:
                 {"role": "user", "content": user_prompt}
             ]
             response = await acompletion(
-                model="gpt-4o",
+                model=self.SUGGESTED_QUESTION_MODEL,
                 messages=messages,
                 stream=False
             )

@@ -32,7 +32,7 @@ Rules:
 3. Maintain all paragraph breaks and line formatting exactly as they appear
 4. Ignore headers, footers, and metadata
 5. Never truncate or skip any portion of the text
-6. Do not use double dots "..", use single dots "."
+6. DO NOT use double dots for periods or ellipses. DO NOT USE "..", use single dot "."
 7. Make sure the last paragraph is complete and not cut off
 8. Output the entire text without any summarization or omission
 

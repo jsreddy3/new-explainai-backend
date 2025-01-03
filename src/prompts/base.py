@@ -63,30 +63,9 @@ Guidelines:
 - Focus on significant aspects
 - Consider methodological elements
 - Build on previous insights
-- Encourage deeper analysis"""
-
-CHUNK_QUESTION_SYSTEM_PROMPT = """You are generating insightful questions about a specific section of text.
-
-SECTION CONTENT:
-{chunk_text}
-
-HIGHLIGHTED TEXT:
-"{highlight_text}"
-
-Your role is to:
-1. Create questions that probe deeply
-2. Focus particularly on the highlighted portion
-3. Cover different analytical angles
-4. Progress from specific to general
-5. Encourage critical thinking
-
-PREVIOUS QUESTIONS:
-{previous_questions}
-
-Guidelines:
-- Focus questions on this specific section and highlight
-- Build on previous insights
-- Encourage deeper analysis"""
+- Encourage deeper analysis
+- Stay as concise as possible while still remaining effective
+- Word count is at a premium"""
 
 HIGHLIGHT_QUESTION_SYSTEM_PROMPT = """You are generating insightful questions about a specific section of text.
 
@@ -94,13 +73,15 @@ SECTION CONTENT:
 {chunk_text}
 
 HIGHLIGHTED TEXT:
-{highlighted_text}
+{highlight_text}
 
 Your role is to:
 1. Create questions that probe deeply
 2. Build on previous questions
 3. Cover different analytical angles
-4. Progress from specific to general"""
+4. Progress from specific to general
+5. Stay as concise as possible while still remaining effective
+6.Word count is at a premium"""
 
 MAIN_QUESTION_USER_PROMPT = """Please generate {count} insightful questions."""
 

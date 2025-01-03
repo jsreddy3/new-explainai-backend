@@ -188,6 +188,7 @@ class WebSocketHandler:
         chunk_id = data.get("chunk_id")
         conversation_type = data.get("conversation_type")
         request_id = data.get("request_id")
+        question_id = data.get("question_id", "")  # Optional parameter
 
         if not conversation_id:
             await self.websocket.send_json({
@@ -231,7 +232,8 @@ class WebSocketHandler:
                 "role": role,
                 "chunk_id": chunk_id,
                 "conversation_type": conversation_type,
-                "user": self.user
+                "user": self.user,
+                "question_id": question_id
             }
         ))
 
@@ -389,6 +391,28 @@ class WebSocketHandler:
             }
         ))
 
+    async def handle_list_questions(self, data: Dict):
+      """Handle questions list request"""
+      conversation_id = data.get("conversation_id")
+      request_id = data.get("request_id")
+
+      if not conversation_id:
+          await self.websocket.send_json({
+              "error": "Missing required field: conversation_id",
+              "request_id": request_id
+          })
+          return
+
+      await event_bus.emit(Event(
+          type="conversation.questions.list.requested",
+          document_id=self.document_id,
+          connection_id=self.connection_id,
+          request_id=request_id,
+          data={
+              "conversation_id": conversation_id
+          }
+      ))
+
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message"""
         msg_type = message.get("type")
@@ -417,6 +441,8 @@ class WebSocketHandler:
             await self.handle_get_conversations_by_sequence(data)
         elif msg_type == "conversation.messages.get":
             await self.handle_list_messages(data)
+        elif msg_type == "conversation.questions.list":
+            await self.handle_list_questions(data)
         else:
             await self.websocket.send_json({
                 "error": f"Unknown message type: {msg_type}",

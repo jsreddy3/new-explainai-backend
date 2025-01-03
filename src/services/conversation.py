@@ -319,6 +319,20 @@ class ConversationService:
                 db_user = result.scalar_one()
                 db_user.user_cost += cost
                 logger.info(f"Updated user {user.id} cost to ${db_user.user_cost:.2f}")
+
+            # If this message was from a suggested question, mark it as answered
+            question_id = event.data.get("question_id")
+            if question_id:
+                question = await db.execute(
+                    select(Question)
+                    .where(
+                        Question.id == question_id,
+                        Question.conversation_id == conversation_id
+                    )
+                )
+                question = question.scalar_one_or_none()
+                if question:
+                    question.answered = True
         
             await db.commit()
             
@@ -385,17 +399,23 @@ class ConversationService:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt
             )
+
+            if user and cost:
+                stmt = select(User).where(User.id == user.id)
+                result = await db.execute(stmt)
+                db_user = result.scalar_one()
+                db_user.user_cost += cost
+                logger.info(f"Updated user {user.id} cost to ${db_user.user_cost:.2f}")
             
-            # Store generated questions
+            questions_to_add = []
             for question in questions[:3]:
                 if question.strip():
-                    question_entry = Question(
+                    questions_to_add.append(Question(
                         conversation_id=conversation_id,
                         content=question.strip(),
                         meta_data={"chunk_id": conversation["chunk_id"]}
-                    )
-                    db.add(question_entry)  # Use passed db
-            
+                    ))
+            db.add_all(questions_to_add)            
             await db.commit()
             
             await event_bus.emit(Event(
@@ -502,7 +522,7 @@ class ConversationService:
             conversation_id = event.data["conversation_id"]
             document_id = event.document_id
             
-            questions = await self.get_conversation_questions(conversation_id, db)
+            questions = await self.get_conversation_questions_unanswered(conversation_id, db)
             
             await event_bus.emit(Event(
                 type="conversation.questions.list.completed",
@@ -812,6 +832,19 @@ class ConversationService:
             .order_by(Question.created_at)
         )
         return [q.to_dict() for q in result.scalars().all()]
+
+    async def get_conversation_questions_unanswered(self, conversation_id: str, db: AsyncSession) -> List[Dict]:
+      result = await db.execute(
+          select(Question)
+          .where(
+              and_(
+                  Question.conversation_id == conversation_id,
+                  Question.answered == False
+              )
+          )
+          .order_by(Question.created_at)
+      )
+      return [q.to_dict() for q in result.scalars().all()]
 
     async def _get_conversation(self, conversation_id: str, db: AsyncSession) -> Dict:
         conversation = await db.get(Conversation, conversation_id)

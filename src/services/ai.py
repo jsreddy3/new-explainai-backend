@@ -13,10 +13,12 @@ logger = setup_logger(__name__)
 
 class AIService:
     # MODEL = "gpt-4o"
-    MODEL = "anthropic/claude-3-5-sonnet-20241022"
+    CHAT_MODEL = "anthropic/claude-3-5-sonnet-20241022"
+    SUGGESTED_QUESTION_MODEL = "anthropic/claude-3-5-sonnet-20241022"
+    SUMMARY_MODEL = "anthropic/claude-3-5-sonnet-20241022"
     
     def __init__(self):
-        logger.info(f"Initialized AIService with model: {self.MODEL}")
+        logger.info(f"Initialized AIService with chat model: {self.CHAT_MODEL}")
         self.message_logger = MessageLogger()
         
     async def chat(
@@ -47,7 +49,7 @@ class AIService:
             # Call AI model
             response = ""
             completion = await acompletion(
-                model=self.MODEL,
+                model=self.CHAT_MODEL,
                 messages=messages,
                 stream=stream
             )
@@ -69,7 +71,7 @@ class AIService:
 
             # Calculate cost using the input messages and final response
             cost = completion_cost(
-                model=self.MODEL,
+                model=self.CHAT_MODEL,
                 messages=messages,  # Your input messages
                 completion=response  # The complete response we built
             )
@@ -157,7 +159,7 @@ class AIService:
                     question = line[line.index('. ') + 2:]
                     questions.append(question)
             cost = completion_cost(
-                model=self.MODEL,
+                model=self.SUGGESTED_QUESTION_MODEL,
                 messages=messages,
                 completion=content
             )
@@ -224,7 +226,7 @@ class AIService:
         
         try:
             response = await acompletion(
-                model=self.MODEL,
+                model=self.SUMMARY_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -234,7 +236,7 @@ class AIService:
             summary = response.choices[0].message.content.strip()
 
             cost = completion_cost(
-                model=self.MODEL,
+                model=self.SUMMARY_MODEL,
                 messages=messages,
                 completion=summary
             )

@@ -131,36 +131,54 @@ class PDFService:
 
     async def process_pdf_with_gemini(self, content: bytes) -> str:
         """Process PDF content in parallel using page units"""
-        start = time.time()
+        start_total = time.time()
+        
+        logger.info("Starting PDF parsing...")
         pdf_doc = fitz.open(stream=content, filetype="pdf")
-        logger.info(f"PDF open time: {time.time() - start}")
+        logger.info(f"PDF open time: {time.time() - start_total:.3f} s")
         
         total_pages = min(len(pdf_doc), MAX_PAGES)
+        logger.info(f"Total pages (capped): {total_pages}")
+
+        # Calculate number of units needed
         num_units = (total_pages + PAGES_PER_UNIT - 1) // PAGES_PER_UNIT
-        
+        logger.info(f"Number of units to process: {num_units}")
+
+        # Create processing tasks for each unit
+        start_page_units = time.time()
         tasks = []
-        unit_start = time.time()
         for i in range(num_units):
             start_page = i * PAGES_PER_UNIT
-            unit_content = await self.create_page_unit(  # Note the await here
-                pdf_doc=pdf_doc,
-                start_page=start_page,
-                num_pages=min(PAGES_PER_UNIT, total_pages - start_page)
+            unit_content = self.create_page_unit(
+                pdf_doc, 
+                start_page, 
+                min(PAGES_PER_UNIT, total_pages - start_page)
             )
             tasks.append(self.process_page_unit(unit_content, i))
-        logger.info(f"Unit creation time: {time.time() - unit_start}")
-        
-        api_start = time.time()
+        logger.info(f"Time to create all page units: {time.time() - start_page_units:.3f} s")
+
+        # Process all units in parallel
+        logger.info("Starting to process all page units in parallel...")
+        gather_start = time.time()
         try:
             results = await asyncio.gather(*tasks)
-            logger.info(f"API processing time: {time.time() - api_start}")
-            pdf_doc.close()
-            
-            # Combine results, preserving order
-            return ' '.join(result for result in results if result)
+            gather_duration = time.time() - gather_start
+            logger.info(f"asyncio.gather() took {gather_duration:.3f} s total")
         except Exception as e:
             pdf_doc.close()
             raise e
+
+        pdf_doc.close()
+        
+        # Combine results, preserving order
+        combine_start = time.time()
+        combined_text = ' '.join(result for result in results if result)
+        logger.info(f"Combining results took {time.time() - combine_start:.3f} s")
+
+        total_duration = time.time() - start_total
+        logger.info(f"Total process_pdf_with_gemini time: {total_duration:.3f} s")
+
+        return combined_text
 
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
         """Process document file and return structured response"""

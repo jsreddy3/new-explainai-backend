@@ -9,6 +9,10 @@ from docx import Document
 import io
 import asyncio
 
+from newspaper import Article
+import validators
+from urllib.parse import urlparse
+
 from src.core.config import Settings
 from src.core.logging import setup_logger
 

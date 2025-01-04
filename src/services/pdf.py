@@ -227,6 +227,7 @@ class PDFService:
             if file_ext == '.pdf':
                 processed_text, input_tokens, output_tokens = await self.process_pdf_with_gemini(content)
                 cost = self.calculate_gemini_cost(input_tokens, output_tokens)
+                logger.info(f"PDF processing cost: {cost}")
             else:
                 processed_text = await self.extract_text_from_file(content, file_ext)
                 cost = 0

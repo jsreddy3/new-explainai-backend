@@ -9,7 +9,6 @@ from async_timeout import timeout
 
 from ..models.database import Document, DocumentChunk
 from ..core.logging import setup_logger
-from ..services.pdf import PDFService
 from ..core.events import Event, event_bus
 from ..db.session import engine
 
@@ -31,8 +30,6 @@ class DocumentService:
                 class_=AsyncSession,
                 expire_on_commit=True
             )
-            self.pdf_service = PDFService()
-
             # Task management
             self.task_queue = asyncio.Queue()
             self.active_tasks = set()

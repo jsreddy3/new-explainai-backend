@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from typing import Dict, Optional, Callable, Awaitable, Any
+from typing import Dict, Optional, Callable, Awaitable, Union, Dict, Any
 import asyncio
 import json
 import uuid
+
+from pydantic import BaseModel, HttpUrl
 
 from src.db.session import get_db
 from src.services.document import DocumentService
@@ -21,6 +23,9 @@ from ...core.config import settings
 logger = setup_logger(__name__)
 pdf_service = PDFService()
 router = APIRouter()
+
+class URLUploadRequest(BaseModel):
+    url: HttpUrl
 
 class WebSocketHandler:
     def __init__(self, websocket: WebSocket, document_id: str, user: Optional[User], db: AsyncSession):
@@ -284,13 +289,34 @@ async def get_upload_progress(
 
 @router.post("/documents/upload")
 async def upload_document(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
+    url_data: Optional[URLUploadRequest] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     try:
-        # Process the PDF with progress tracking
-        result, cost = await pdf_service.process_pdf(file, str(current_user.id))
+        if file is None and url_data is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Either file or url must be provided"
+            )
+        if file is not None and url_data is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot provide both file and url"
+            )
+
+        # Process the content based on input type
+        if file:
+            result, cost = await pdf_service.process_pdf(file, str(current_user.id))
+            display_name = file.filename
+        else:
+            result, cost = await pdf_service.process_url(str(url_data.url))
+            display_name = result.display  # URL-based display name
+
+        if not result.success:
+            logger.error(f"Processing failed: {result.text}")
+            raise HTTPException(status_code=400, detail=result.text)
         
         # Update user cost without starting a new transaction
         try:
@@ -305,19 +331,18 @@ async def upload_document(
         except Exception as e:
             logger.error(f"Failed to update user cost: {e}")
 
-        if not result.success:
-            logger.error(f"PDF processing failed: {result.text}")
-            raise HTTPException(status_code=400, detail=result.text)
-
         # Create document record with owner
         document = Document(
-            title=result.display,
+            title=display_name,
             content=result.text,
             owner_id=str(current_user.id),
             status="ready",
             meta_data={
                 "topic_key": result.topicKey,
-                "chunks_count": len(result.chunks)
+                "chunks_count": len(result.chunks),
+                # # Maybe add these
+                # "source_type": "file" if file else "url",
+                # "source": file.filename if file else str(url_data.url)
             }
         )
         db.add(document)
@@ -349,7 +374,8 @@ async def upload_document(
             data={
                 "filename": file.filename,
                 "document_id": str(document.id),
-                "owner_id": str(current_user.id)
+                "owner_id": str(current_user.id),
+                # "source_type": "file" if file else "url"
             }
         ))
 

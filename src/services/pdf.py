@@ -268,3 +268,79 @@ class PDFService:
                 tracking_key = f"{user_id}:{file.filename}"
                 if tracking_key in self.upload_progress:
                     del self.upload_progress[tracking_key]
+    
+    def is_valid_url(self, url: str) -> bool:
+        """Validate URL format and supported domains"""
+        if not validators.url(url):
+            return False
+            
+        parsed = urlparse(url)
+        logger.info("URL Parse info: ", parsed)
+        # Add any domain-specific validation if needed
+        return True
+    
+    async def extract_web_content(self, url: str) -> str:
+        """Extract content from a web URL using newspaper3k"""
+        try:
+            article = Article(url)
+            article.download()
+            article.parse()
+            
+            # Combine title and text with proper formatting
+            content_parts = []
+            title = None
+            if article.title:
+                title = article.title.strip()
+                content_parts.append(title)
+            if article.text:
+                content_parts.append(article.text.strip())
+                
+            content = "\n\n".join(content_parts)
+            
+            if not content.strip():
+                raise ValueError("No content could be extracted from URL")
+                
+            return content, title
+            
+        except Exception as e:
+            logger.error(f"Error extracting content from URL {url}: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to extract content from URL: {str(e)}"
+            )
+    
+    async def process_url(self, url: str) -> Tuple[PDFResponse, float]:
+        """Process a URL and return structured response"""
+        if not self.is_valid_url(url):
+            raise HTTPException(status_code=400, detail="Invalid URL format")
+            
+        try:
+            # Extract content from URL
+            content, title = await self.extract_web_content(url)
+            
+            # Ensure minimum content length
+            assert len(content) > MINIMUM_TEXT_LENGTH, "Extracted text is too short"
+            
+            # Create chunks from content
+            chunks = self.chunk_text(content)
+
+            if title:
+                display = title
+            else:
+                parsed_url = urlparse(url)
+                display = parsed_url.netloc + parsed_url.path
+                if display.endswith('/'):
+                    display = display[:-1]
+                display = display.split('/')[-1] or parsed_url.netloc
+            
+            return PDFResponse(
+                success=True,
+                topicKey=f"url-{hash(url)%10000:04d}",
+                display=display,
+                text=content,
+                chunks=chunks
+            ), 0  # Cost is 0 for web extraction
+            
+        except Exception as e:
+            logger.error(f"Error processing URL {url}: {str(e)}")
+            raise

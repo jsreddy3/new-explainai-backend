@@ -387,7 +387,7 @@ class ConversationService:
             except:
                 pass
 
-    async def handle_generate_questions(self, event: Event, db: AsyncSession):
+    async def handle_generate_questions(self, event: Event, db: AsyncSession, emit_event: bool = True):
         try:
             data = event.data
             conversation_id = data["conversation_id"]

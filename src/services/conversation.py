@@ -575,7 +575,6 @@ class ConversationService:
     async def handle_regenerate_questions(self, event: Event, db: AsyncSession):
       try:
           conversation_id = event.data["conversation_id"]
-          
           # Mark existing questions as answered
           await db.execute(
               update(Question)
@@ -583,9 +582,25 @@ class ConversationService:
               .values(answered=True)
           )
           await db.commit()
+
+          # Get the conversation to get its document_id
+          conversation = await self._get_conversation(conversation_id, db)
+          
+          # Create new event with all required data
+          generate_event = Event(
+              type="conversation.questions.generate.requested",
+              document_id=conversation["document_id"],  # Add document_id from conversation
+              connection_id=event.connection_id,
+              request_id=event.request_id,
+              data={
+                  "conversation_id": conversation_id,
+                  "document_id": conversation["document_id"],  # Also need in data
+                  "user": event.data.get("user")
+              }
+          )
           
           # Generate new questions using existing logic
-          await self.handle_generate_questions(event, db)
+          await self.handle_generate_questions(generate_event, db)
           
       except Exception as e:
           logger.error(f"Error regenerating questions: {e}")

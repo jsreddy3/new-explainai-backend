@@ -444,21 +444,24 @@ class ConversationService:
                         content=question.strip(),
                         meta_data={"chunk_id": conversation["chunk_id"]}
                     ))
-            db.add_all(questions_to_add)            
+            db.add_all(questions_to_add)
             await db.commit()
-            
-            await event_bus.emit(Event(
-                type="conversation.questions.generate.completed",
-                document_id=conversation["document_id"],
-                connection_id=event.connection_id,
-                request_id=event.request_id,
-                data={
-                    "conversation_id": conversation_id,
-                    "questions": [q.strip() for q in questions[:3]],
-                    "cost": cost
-                }
-            ))
-            
+
+            if emit_event:
+                await event_bus.emit(Event(
+                    type="conversation.questions.generate.completed",
+                    document_id=conversation["document_id"],
+                    connection_id=event.connection_id,
+                    request_id=event.request_id,
+                    data={
+                        "conversation_id": conversation_id,
+                        "questions": [q.strip() for q in questions[:3]],
+                        "cost": cost
+                    }
+                ))
+                
+            return [q.strip() for q in questions[:3]]  # Return questions for reuse
+                
         except Exception as e:
             logger.error(f"Error generating questions: {e}")
             await event_bus.emit(Event(
@@ -575,6 +578,7 @@ class ConversationService:
     async def handle_regenerate_questions(self, event: Event, db: AsyncSession):
       try:
           conversation_id = event.data["conversation_id"]
+          
           # Mark existing questions as answered
           await db.execute(
               update(Question)
@@ -586,21 +590,33 @@ class ConversationService:
           # Get the conversation to get its document_id
           conversation = await self._get_conversation(conversation_id, db)
           
-          # Create new event with all required data
-          generate_event = Event(
-              type="conversation.questions.generate.requested",
-              document_id=conversation["document_id"],  # Add document_id from conversation
+          # Generate questions without event emission
+          questions = await self.handle_generate_questions(
+              Event(
+                  type="conversation.questions.generate.requested",
+                  document_id=conversation["document_id"],
+                  connection_id=event.connection_id,
+                  data={
+                      "conversation_id": conversation_id,
+                      "document_id": conversation["document_id"],
+                      "user": event.data.get("user")
+                  }
+              ), 
+              db,
+              emit_event=False  # New parameter to control event emission
+          )
+          
+          # Emit regeneration completed event
+          await event_bus.emit(Event(
+              type="conversation.questions.regenerate.completed",
+              document_id=conversation["document_id"],
               connection_id=event.connection_id,
               request_id=event.request_id,
               data={
                   "conversation_id": conversation_id,
-                  "document_id": conversation["document_id"],  # Also need in data
-                  "user": event.data.get("user")
+                  "questions": questions  # Return the new questions
               }
-          )
-          
-          # Generate new questions using existing logic
-          await self.handle_generate_questions(generate_event, db)
+          ))
           
       except Exception as e:
           logger.error(f"Error regenerating questions: {e}")

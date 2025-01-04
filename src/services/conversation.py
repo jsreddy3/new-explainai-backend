@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
 from sqlalchemy.orm import sessionmaker
 from ..db.session import engine  # Add this if not already imported
-from sqlalchemy import select, and_
+from sqlalchemy import select, update, and_
 import uuid
 from datetime import datetime
 from asyncio import TimeoutError

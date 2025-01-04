@@ -21,7 +21,15 @@ MAX_PAGES = 8  # Limit number of pages
 CHUNK_SIZE = 2500  # Characters per chunk
 MAX_CHUNKS = 16
 MINIMUM_TEXT_LENGTH = 10
-PAGES_PER_UNIT = 1  # Process 4 pages at a time
+PAGES_PER_UNIT = 1  # Pages to process at a time
+
+INPUT_TOKEN_RATES = {
+    "gemini-1.5-flash": 0.075 / 1_000_000  # $0.075 per million tokens
+}
+
+OUTPUT_TOKEN_RATES = {
+    "gemini-1.5-flash": 0.30 / 1_000_000  # $0.30 per million tokens
+}
 
 # Prompt optimized based on our testing
 GEMINI_PROMPT = """Extract EVERY WORD of the main content, making sure to include ALL text from start to finish. Do not skip or omit any content.
@@ -38,6 +46,12 @@ Rules:
 
 Output the complete text, preserving everything from beginning to end."""
 
+# ref: https://ai.google.dev/gemini-api/docs/tokens?lang=python
+# GEMINI_PROMPT_TOKEN_COUNT = 160 # (for current prompt), would use genai.GenerativeModel("models/gemini-1.5-flash"); model.count_tokens(GEMINI_PROMPT);
+# GEMINI_PDF_PAGE_TOKEN_COUNT = 258 # source: https://ai.google.dev/gemini-api/docs/document-processing?lang=python
+
+GEMINI_MODEL = "gemini-1.5-flash"
+
 class PDFResponse(BaseModel):
     success: bool
     topicKey: str
@@ -50,7 +64,7 @@ class PDFService:
         self.max_file_size = MAX_FILE_SIZE
         self.upload_progress = {}  # {user_id:filename -> {total: int, processed: int}}
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
+        self.model = genai.GenerativeModel(GEMINI_MODEL)
 
     async def validate_file(self, file: UploadFile) -> None:
         """Validate that the uploaded file is supported and within size limits"""
@@ -125,8 +139,8 @@ class PDFService:
         new_pdf.close()
         return content
 
-    async def process_page_unit(self, unit_content: bytes, unit_number: int) -> str:
-        """Process a unit of pages with Gemini"""
+    async def process_page_unit(self, unit_content: bytes, unit_number: int) -> Tuple[str, int, int]:
+        """Process a unit of pages with Gemini and return text and token counts"""
         try:
             start_time = time.time()
             pdf_data = base64.b64encode(unit_content).decode('utf-8')
@@ -139,19 +153,26 @@ class PDFService:
             ])
             duration = time.time() - start_time
             logger.info(f"Unit {unit_number} processed in {duration:.3f}s")
-            return response.text.strip()
+            
+            # Get token counts from response metadata
+            input_tokens = response.usage_metadata.prompt_token_count
+            output_tokens = response.usage_metadata.candidates_token_count
+            
+            return response.text.strip(), input_tokens, output_tokens
         except Exception as e:
             logger.error(f"Error processing unit {unit_number}: {str(e)}")
             raise
 
-    async def process_pdf_with_gemini(self, content: bytes) -> str:
+    def calculate_gemini_cost(self, input_tokens: int, output_tokens: int) -> float:
+        """Calculate total cost based on token counts."""
+        input_cost = input_tokens * INPUT_TOKEN_RATES['gemini-1.5-flash']
+        output_cost = output_tokens * OUTPUT_TOKEN_RATES['gemini-1.5-flash']
+        return input_cost + output_cost
+
+    async def process_pdf_with_gemini(self, content: bytes) -> Tuple[str, int, int]:
         """Process PDF content in parallel using page units"""
-        start_total = time.time()
         
-        logger.info("Starting PDF parsing...")
         pdf_doc = fitz.open(stream=content, filetype="pdf")
-        logger.info(f"PDF open time: {time.time() - start_total:.3f} s")
-        
         total_pages = min(len(pdf_doc), MAX_PAGES)
         logger.info(f"Total pages (capped): {total_pages}")
 
@@ -160,7 +181,6 @@ class PDFService:
         logger.info(f"Number of units to process: {num_units}")
 
         # Create processing tasks for each unit
-        start_page_units = time.time()
         tasks = []
         for i in range(num_units):
             start_page = i * PAGES_PER_UNIT
@@ -170,38 +190,28 @@ class PDFService:
                 min(PAGES_PER_UNIT, total_pages - start_page)
             )
             tasks.append(self.process_page_unit(unit_content, i))
-        logger.info(f"Time to create all page units: {time.time() - start_page_units:.3f} s")
 
-        # Process all units in parallel
-        logger.info("Starting to process all page units in parallel...")
-        gather_start = time.time()
         try:
             results = await asyncio.gather(*tasks)
-            gather_duration = time.time() - gather_start
-            logger.info(f"asyncio.gather() took {gather_duration:.3f} s total")
+            # Unzip the results into separate lists
+            texts, input_tokens, output_tokens = zip(*results)
+            combined_text = ' '.join(text for text in texts if text)
+            total_input_tokens = sum(input_tokens)
+            total_output_tokens = sum(output_tokens)
+            
+            return combined_text, total_input_tokens, total_output_tokens
         except Exception as e:
             pdf_doc.close()
             raise e
-
-        pdf_doc.close()
-        
-        # Combine results, preserving order
-        combine_start = time.time()
-        combined_text = ' '.join(result for result in results if result)
-        logger.info(f"Combining results took {time.time() - combine_start:.3f} s")
-
-        total_duration = time.time() - start_total
-        logger.info(f"Total process_pdf_with_gemini time: {total_duration:.3f} s")
-
-        return combined_text
+        finally:
+            pdf_doc.close()
 
     async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
         """Process document file and return structured response"""
-        await self.validate_file(file)
-        start_time = time.time()
-        file_ext = '.' + file.filename.lower().split('.')[-1]
-        
         try:
+            await self.validate_file(file)
+            file_ext = '.' + file.filename.lower().split('.')[-1]
+            
             # Read file content
             content = await file.read()
             
@@ -215,10 +225,12 @@ class PDFService:
             
             # Process based on file type
             if file_ext == '.pdf':
-                processed_text = await self.process_pdf_with_gemini(content)
+                processed_text, input_tokens, output_tokens = await self.process_pdf_with_gemini(content)
+                cost = self.calculate_gemini_cost(input_tokens, output_tokens)
             else:
-                processed_text = self.extract_text_from_file(content, file_ext)
-            
+                processed_text = await self.extract_text_from_file(content, file_ext)
+                cost = 0
+
             assert len(processed_text) > MINIMUM_TEXT_LENGTH, "Extracted text is too short"
             
             # Create chunks from processed text
@@ -230,7 +242,6 @@ class PDFService:
                 self.upload_progress[tracking_key]["processed"] = 1
             
             filename = file.filename.rsplit('.', 1)[0]
-            cost = 0  # TODO: Calculate cost based on Gemini's pricing
             
             return PDFResponse(
                 success=True,

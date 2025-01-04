@@ -58,6 +58,7 @@ class ConversationService:
             event_bus.on("conversation.chunk.get.requested", self._queue_task(self.handle_get_conversations_by_sequence))
             event_bus.on("conversation.messages.requested", self._queue_task(self.handle_list_messages))
             event_bus.on("conversation.list.requested", self._queue_task(self.handle_list_conversations))
+            event_bus.on("conversation.questions.regenerate.requested", self._queue_task(self.handle_regenerate_questions))
                 
             self.__class__._initialized = True
 

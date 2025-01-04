@@ -571,6 +571,31 @@ class ConversationService:
               data={"error": str(e)}
           ))
 
+    async def handle_regenerate_questions(self, event: Event, db: AsyncSession):
+      try:
+          conversation_id = event.data["conversation_id"]
+          
+          # Mark existing questions as answered
+          await db.execute(
+              update(Question)
+              .where(Question.conversation_id == conversation_id)
+              .values(answered=True)
+          )
+          await db.commit()
+          
+          # Generate new questions using existing logic
+          await self.handle_generate_questions(event, db)
+          
+      except Exception as e:
+          logger.error(f"Error regenerating questions: {e}")
+          await event_bus.emit(Event(
+              type="conversation.questions.regenerate.error",
+              document_id=event.document_id,
+              connection_id=event.connection_id,
+              request_id=event.request_id,
+              data={"error": str(e)}
+          ))
+
     async def handle_get_conversations_by_sequence(self, event: Event, db: AsyncSession):
         """Get all conversations for a document that have a specific chunk sequence number"""
         try:

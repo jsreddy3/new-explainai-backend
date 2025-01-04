@@ -51,6 +51,7 @@ class WebSocketHandler:
             # Question events
             "conversation.questions.generate.completed", "conversation.questions.generate.error",
             "conversation.questions.list.completed", "conversation.questions.list.error",
+            "conversation.questions.regenerate.completed", "conversation.questions.regenerate.error",
             
             # Merge events
             "conversation.merge.completed", "conversation.merge.error",
@@ -413,6 +414,32 @@ class WebSocketHandler:
           }
       ))
 
+    async def handle_regenerate_questions(self, data: Dict):
+      """Handle question regeneration request"""
+      conversation_id = data.get("conversation_id")
+      conversation_type = data.get("conversation_type")
+      chunk_id = data.get("chunk_id")
+      request_id = data.get("request_id")
+
+      if not conversation_id:
+          await self.websocket.send_json({
+              "error": "Missing required field: conversation_id",
+              "request_id": request_id
+          })
+          return
+
+      await event_bus.emit(Event(
+          type="conversation.questions.regenerate.requested",
+          document_id=self.document_id,
+          connection_id=self.connection_id,
+          request_id=request_id,
+          data={
+              "conversation_id": conversation_id,
+              "conversation_type": conversation_type,
+              "chunk_id": chunk_id
+          }
+      ))
+
     async def process_message(self, message: Dict):
         """Process incoming WebSocket message"""
         msg_type = message.get("type")
@@ -443,6 +470,8 @@ class WebSocketHandler:
             await self.handle_list_messages(data)
         elif msg_type == "conversation.questions.list":
             await self.handle_list_questions(data)
+        elif msg_type == "conversation.questions.regenerate":
+            await self.handle_regenerate_questions(data)
         else:
             await self.websocket.send_json({
                 "error": f"Unknown message type: {msg_type}",

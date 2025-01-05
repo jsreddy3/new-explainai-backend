@@ -233,8 +233,11 @@ class PDFService:
                 cost = self.calculate_gemini_cost(input_tokens, output_tokens)
                 logger.info(f"PDF processing cost: {cost}")
             else:
-                processed_text = await self.extract_text_from_file(content, file_ext)
+                processed_text = self.extract_text_from_file(content, file_ext)
                 cost = 0
+
+            if not processed_text:
+                raise HTTPException(status_code=400, detail=f"Could not extract text from {file_ext} file")
 
             assert len(processed_text) > MINIMUM_TEXT_LENGTH, "Extracted text is too short"
             
@@ -262,7 +265,7 @@ class PDFService:
                 tracking_key = f"{user_id}:{file.filename}"
                 if tracking_key in self.upload_progress:
                     del self.upload_progress[tracking_key]
-            raise e
+            raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
         finally:
             if user_id:
                 tracking_key = f"{user_id}:{file.filename}"

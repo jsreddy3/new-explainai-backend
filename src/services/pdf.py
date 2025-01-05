@@ -84,7 +84,7 @@ class PDFService:
         if len(content) > self.max_file_size:
             raise HTTPException(status_code=413, detail="File size too large. Maximum size is 10MB")
 
-    def extract_text_from_file(self, content: bytes, file_ext: str) -> str:
+    async def extract_text_from_file(self, content: bytes, file_ext: str) -> str:
         """Extract text from supported file types"""
         if file_ext == '.txt' or file_ext == '.md':
             return content.decode('utf-8')
@@ -233,7 +233,7 @@ class PDFService:
                 cost = self.calculate_gemini_cost(input_tokens, output_tokens)
                 logger.info(f"PDF processing cost: {cost}")
             else:
-                processed_text = self.extract_text_from_file(content, file_ext)
+                processed_text = await self.extract_text_from_file(content, file_ext)
                 cost = 0
 
             if not processed_text:

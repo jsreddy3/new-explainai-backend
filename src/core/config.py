@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     ]
 
     # API Keys
-    LLAMA_CLOUD_API_KEY: str
     GEMINI_API_KEY: str
     ANTHROPIC_API_KEY: str
     OPENAI_API_KEY: str

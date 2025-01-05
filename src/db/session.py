@@ -13,15 +13,24 @@ elif DATABASE_URL.startswith('postgresql://'):
     DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
 
 # Create async database engine
+engine_kwargs = {
+    'echo': False,
+    'future': True,
+    'pool_pre_ping': True,  # Verify connections are still valid before using
+}
+
+# Add PostgreSQL-specific connection pooling if using PostgreSQL
+if DATABASE_URL.startswith('postgresql+psycopg://'):
+    engine_kwargs.update({
+        'pool_size': 20,
+        'max_overflow': 10,
+        'pool_timeout': 30,
+        'pool_recycle': 3600,
+    })
+
 engine = create_async_engine(
     DATABASE_URL,
-    echo=False,
-    future=True,
-    pool_size=20,  # Allow up to 20 concurrent connections
-    max_overflow=10,  # Allow up to 10 additional temporary connections
-    pool_timeout=30,  # How long to wait for a connection from pool
-    pool_pre_ping=True,  # Verify connections are still valid before using
-    pool_recycle=3600,  # Recycle connections after 1 hour
+    **engine_kwargs
 )
 
 # Create async sessionmaker

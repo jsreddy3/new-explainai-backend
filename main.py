@@ -39,7 +39,6 @@ async def lifespan(app: FastAPI):
         # Verify required settings
         required_settings = [
             'OPENAI_API_KEY',
-            'LLAMA_CLOUD_API_KEY',
             'DATABASE_URL',
             'GOOGLE_CLIENT_ID',
             'GOOGLE_CLIENT_SECRET',

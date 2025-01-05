@@ -287,33 +287,17 @@ async def get_upload_progress(
         "is_complete": True,
     }
 
-@router.post("/documents/upload")
-async def upload_document(
-    file: Optional[UploadFile] = File(None),
-    url_data: Optional[URLUploadRequest] = None,
+@router.post("/documents/upload/file")
+async def upload_document_file(
+    file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
+    """Upload a document from a file"""
     try:
-        if file is None and url_data is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Either file or url must be provided"
-            )
-        if file is not None and url_data is not None:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot provide both file and url"
-            )
-
-        # Process the content based on input type
-        if file:
-            result, cost = await pdf_service.process_pdf(file, str(current_user.id))
-            display_name = file.filename
-        else:
-            result, cost = await pdf_service.process_url(str(url_data.url))
-            display_name = result.display  # URL-based display name
-
+        result, cost = await pdf_service.process_pdf(file, str(current_user.id))
+        display_name = file.filename
+        
         if not result.success:
             logger.error(f"Processing failed: {result.text}")
             raise HTTPException(status_code=400, detail=result.text)
@@ -325,81 +309,175 @@ async def upload_document(
             user = result_db.scalar_one()
             old_cost = user.user_cost
             user.user_cost += float(cost)
-            await db.flush()  # Use flush instead of commit here
+            await db.flush()
             
-            logger.info(f"PDF Upload updated user {current_user.id} cost from ${old_cost:.10f} to ${user.user_cost:.10f}")
-        except Exception as e:
-            logger.error(f"Failed to update user cost: {e}")
-
-        # Create document record with owner
-        document = Document(
-            title=display_name,
-            content=result.text,
-            owner_id=str(current_user.id),
-            status="ready",
-            meta_data={
-                "topic_key": result.topicKey,
-                "chunks_count": len(result.chunks),
-                # # Maybe add these
-                # "source_type": "file" if file else "url",
-                # "source": file.filename if file else str(url_data.url)
-            }
-        )
-        db.add(document)
-        await db.flush()
-        
-        logger.info(f"Created document with ID: {document.id}")
-
-        # Create chunks
-        chunks = []
-        for idx, chunk_content in enumerate(result.chunks):
-            chunk = DocumentChunk(
-                document_id=document.id,
-                content=chunk_content,
-                sequence=idx,
+            # Create document
+            document = Document(
+                title=display_name,
+                content=result.text,
+                owner_id=str(current_user.id),
+                status="ready",
                 meta_data={
-                    "length": len(chunk_content),
-                    "index": idx
+                    "topic_key": result.topicKey,
+                    "chunks_count": len(result.chunks),
                 }
             )
-            db.add(chunk)
-            chunks.append(chunk)
-        
-        await db.flush()
-        
-        # Emit document creation event
-        await event_bus.emit(Event(
-            type="document.created",
-            document_id=str(document.id),
-            data={
-                "filename": file.filename,
+            db.add(document)
+            await db.flush()
+            
+            logger.info(f"Created document with ID: {document.id}")
+
+            # Create chunks
+            chunks = []
+            for idx, chunk_content in enumerate(result.chunks):
+                chunk = DocumentChunk(
+                    document_id=document.id,
+                    content=chunk_content,
+                    sequence=idx,
+                    meta_data={
+                        "length": len(chunk_content),
+                        "index": idx
+                    }
+                )
+                db.add(chunk)
+                chunks.append(chunk)
+            
+            await db.flush()
+            
+            # Emit document creation event
+            await event_bus.emit(Event(
+                type="document.created",
+                document_id=str(document.id),
+                data={
+                    "filename": display_name,
+                    "document_id": str(document.id),
+                    "owner_id": str(current_user.id),
+                    # "source_type": "file"
+                }
+            ))
+
+            # Prepare response
+            navigation = {
+                "prev": None,
+                "next": str(chunks[1].id) if len(chunks) > 1 else None
+            }
+
+            await db.commit()  # Final commit for all changes
+            return {
                 "document_id": str(document.id),
-                "owner_id": str(current_user.id),
-                # "source_type": "file" if file else "url"
+                "current_chunk": {
+                    "id": str(chunks[0].id),
+                    "content": chunks[0].content,
+                    "sequence": chunks[0].sequence,
+                    "navigation": navigation
+                }
             }
-        ))
-
-        # Prepare response
-        navigation = {
-            "prev": None,
-            "next": str(chunks[1].id) if len(chunks) > 1 else None
-        }
-
-        return {
-            "document_id": str(document.id),
-            "current_chunk": {
-                "id": str(chunks[0].id),
-                "content": chunks[0].content,
-                "sequence": chunks[0].sequence,
-                "navigation": navigation
-            }
-        }
-    
+        
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            await db.rollback()
+            raise HTTPException(status_code=500, detail="Database error")
+            
     except Exception as e:
         logger.error(f"Document upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        await db.commit()
+
+@router.post("/documents/upload/url")
+async def upload_document_url(
+    url_data: URLUploadRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Upload a document from a URL"""
+    try:
+        url_string = str(url_data.url)
+        logger.info(f"Using process_url: {url_string}")  # Fixed string formatting
+        result, cost = await pdf_service.process_url(url_string)
+        display_name = result.display
+        
+        if not result.success:
+            logger.error(f"Processing failed: {result.text}")
+            raise HTTPException(status_code=400, detail=result.text)
+        
+        # Update user cost without starting a new transaction
+        try:
+            stmt = select(User).where(User.id == current_user.id)
+            result_db = await db.execute(stmt)
+            user = result_db.scalar_one()
+            old_cost = user.user_cost
+            user.user_cost += float(cost)
+            await db.flush()
+            
+            # Create document
+            document = Document(
+                title=display_name,
+                content=result.text,
+                owner_id=str(current_user.id),
+                status="ready",
+                meta_data={
+                    "topic_key": result.topicKey,
+                    "chunks_count": len(result.chunks),
+                }
+            )
+            db.add(document)
+            await db.flush()
+            
+            logger.info(f"Created document with ID: {document.id}")
+
+            # Create chunks
+            chunks = []
+            for idx, chunk_content in enumerate(result.chunks):
+                chunk = DocumentChunk(
+                    document_id=document.id,
+                    content=chunk_content,
+                    sequence=idx,
+                    meta_data={
+                        "length": len(chunk_content),
+                        "index": idx
+                    }
+                )
+                db.add(chunk)
+                chunks.append(chunk)
+            
+            await db.flush()
+            
+            # Emit document creation event
+            await event_bus.emit(Event(
+                type="document.created",
+                document_id=str(document.id),
+                data={
+                    "filename": display_name,
+                    "document_id": str(document.id),
+                    "owner_id": str(current_user.id),
+                    # "source_type": "url"
+                }
+            ))
+
+            # Prepare response
+            navigation = {
+                "prev": None,
+                "next": str(chunks[1].id) if len(chunks) > 1 else None
+            }
+
+            await db.commit()  # Final commit for all changes
+            return {
+                "document_id": str(document.id),
+                "current_chunk": {
+                    "id": str(chunks[0].id),
+                    "content": chunks[0].content,
+                    "sequence": chunks[0].sequence,
+                    "navigation": navigation
+                }
+            }
+        
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            await db.rollback()
+            raise HTTPException(status_code=500, detail="Database error")
+            
+    except Exception as e:
+        logger.error(f"Document upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/documents/{document_id}")
 async def delete_document(

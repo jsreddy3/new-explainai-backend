@@ -84,39 +84,19 @@ class PDFService:
             raise HTTPException(status_code=413, detail="File size too large. Maximum size is 10MB")
 
     async def extract_text_from_file(self, content: bytes, file_ext: str) -> Tuple[str, List[str]]:
-        """Extract text from supported file types. Returns (full_text, page_texts)"""
-        if file_ext == '.txt' or file_ext == '.md':
+        """Extract text + chunks for .txt, .md, .docx. (PDF handled elsewhere)"""
+        if file_ext in ('.txt', '.md'):
             text = content.decode('utf-8')
-            # For text files, maintain existing behavior
-            return text, self.chunk_text(text)
+            chunks = self.chunk_text(text)
+            return text, chunks
         
         elif file_ext == '.docx':
             doc = Document(io.BytesIO(content))
-            # Extract text page by page
-            page_texts = []
-            current_page = []
-            
-            for paragraph in doc.paragraphs:
-                if paragraph.text.strip():
-                    current_page.append(paragraph.text)
-                    # Check if this is a page break
-                    if hasattr(paragraph._element, 'getparent') and paragraph._element.getparent().tag.endswith('sectPr'):
-                        if current_page:
-                            page_texts.append('\n\n'.join(current_page))
-                            current_page = []
-            
-            # Add the last page if there's content
-            if current_page:
-                page_texts.append('\n\n'.join(current_page))
-            
-            # If no page breaks were found, treat the entire document as one page
-            if not page_texts:
-                page_texts = ['\n\n'.join(p.text for p in doc.paragraphs if p.text.strip())]
-            
-            full_text = '\n\n'.join(page_texts)
-            return full_text, page_texts
+            text = '\n\n'.join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
+            chunks = self.chunk_text(text)
+            return text, chunks
         
-        return None, None  # For PDFs, we'll handle them separately
+        return None, []  # For PDFs, we'll handle them separately
 
     def chunk_text(self, text: str, chunk_size: int = CHUNK_SIZE) -> List[str]:
         """Split text into chunks, trying to preserve paragraph boundaries"""

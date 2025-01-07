@@ -25,7 +25,7 @@ MAX_PAGES = 8  # Limit number of pages
 CHUNK_SIZE = 2500  # Characters per chunk
 MAX_CHUNKS = 16
 MINIMUM_TEXT_LENGTH = 10
-PAGES_PER_UNIT = 1  # Pages to process at a time
+PAGES_PER_UNIT = 1  # Process one page at a time
 
 INPUT_TOKEN_RATES = {
     "gemini-1.5-flash": 0.075 / 1_000_000  # $0.075 per million tokens
@@ -35,7 +35,6 @@ OUTPUT_TOKEN_RATES = {
     "gemini-1.5-flash": 0.30 / 1_000_000  # $0.30 per million tokens
 }
 
-# Prompt optimized based on our testing
 GEMINI_PROMPT = """Extract EVERY WORD of the main content, making sure to include ALL text from start to finish. Do not skip or omit any content.
 
 Rules:
@@ -84,16 +83,40 @@ class PDFService:
         if len(content) > self.max_file_size:
             raise HTTPException(status_code=413, detail="File size too large. Maximum size is 10MB")
 
-    async def extract_text_from_file(self, content: bytes, file_ext: str) -> str:
-        """Extract text from supported file types"""
+    async def extract_text_from_file(self, content: bytes, file_ext: str) -> Tuple[str, List[str]]:
+        """Extract text from supported file types. Returns (full_text, page_texts)"""
         if file_ext == '.txt' or file_ext == '.md':
-            return content.decode('utf-8')
+            text = content.decode('utf-8')
+            # For text files, maintain existing behavior
+            return text, self.chunk_text(text)
         
         elif file_ext == '.docx':
             doc = Document(io.BytesIO(content))
-            return '\n\n'.join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
+            # Extract text page by page
+            page_texts = []
+            current_page = []
+            
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    current_page.append(paragraph.text)
+                    # Check if this is a page break
+                    if hasattr(paragraph._element, 'getparent') and paragraph._element.getparent().tag.endswith('sectPr'):
+                        if current_page:
+                            page_texts.append('\n\n'.join(current_page))
+                            current_page = []
+            
+            # Add the last page if there's content
+            if current_page:
+                page_texts.append('\n\n'.join(current_page))
+            
+            # If no page breaks were found, treat the entire document as one page
+            if not page_texts:
+                page_texts = ['\n\n'.join(p.text for p in doc.paragraphs if p.text.strip())]
+            
+            full_text = '\n\n'.join(page_texts)
+            return full_text, page_texts
         
-        return None  # For PDFs, we'll handle them separately
+        return None, None  # For PDFs, we'll handle them separately
 
     def chunk_text(self, text: str, chunk_size: int = CHUNK_SIZE) -> List[str]:
         """Split text into chunks, trying to preserve paragraph boundaries"""
@@ -173,37 +196,33 @@ class PDFService:
         output_cost = output_tokens * OUTPUT_TOKEN_RATES['gemini-1.5-flash']
         return input_cost + output_cost
 
-    async def process_pdf_with_gemini(self, content: bytes) -> Tuple[str, int, int]:
-        """Process PDF content in parallel using page units"""
+    async def process_pdf_with_gemini(self, content: bytes) -> Tuple[str, List[str], int, int]:
+        """Process PDF content in parallel using page units. Returns (full_text, page_texts, input_tokens, output_tokens)"""
         
         pdf_doc = fitz.open(stream=content, filetype="pdf")
         total_pages = min(len(pdf_doc), MAX_PAGES)
         logger.info(f"Total pages (capped): {total_pages}")
 
-        # Calculate number of units needed
-        num_units = (total_pages + PAGES_PER_UNIT - 1) // PAGES_PER_UNIT
-        logger.info(f"Number of units to process: {num_units}")
-
-        # Create processing tasks for each unit
+        # Process each page individually
         tasks = []
-        for i in range(num_units):
-            start_page = i * PAGES_PER_UNIT
-            unit_content = self.create_page_unit(
-                pdf_doc, 
-                start_page, 
-                min(PAGES_PER_UNIT, total_pages - start_page)
-            )
-            tasks.append(self.process_page_unit(unit_content, i))
+        for page_num in range(total_pages):
+            unit_content = self.create_page_unit(pdf_doc, page_num, 1)  # One page per unit
+            tasks.append(self.process_page_unit(unit_content, page_num))
 
         try:
             results = await asyncio.gather(*tasks)
             # Unzip the results into separate lists
-            texts, input_tokens, output_tokens = zip(*results)
-            combined_text = ' '.join(text for text in texts if text)
+            page_texts, input_tokens, output_tokens = zip(*results)
+            
+            # Filter out any empty pages
+            page_texts = [text for text in page_texts if text]
+            
+            # Combine all text for full document
+            combined_text = '\n\n'.join(page_texts)
             total_input_tokens = sum(input_tokens)
             total_output_tokens = sum(output_tokens)
             
-            return combined_text, total_input_tokens, total_output_tokens
+            return combined_text, list(page_texts), total_input_tokens, total_output_tokens
         except Exception as e:
             pdf_doc.close()
             raise e
@@ -229,20 +248,17 @@ class PDFService:
             
             # Process based on file type
             if file_ext == '.pdf':
-                processed_text, input_tokens, output_tokens = await self.process_pdf_with_gemini(content)
+                processed_text, chunks, input_tokens, output_tokens = await self.process_pdf_with_gemini(content)
                 cost = self.calculate_gemini_cost(input_tokens, output_tokens)
                 logger.info(f"PDF processing cost: {cost}")
             else:
-                processed_text = await self.extract_text_from_file(content, file_ext)
+                processed_text, chunks = await self.extract_text_from_file(content, file_ext)
                 cost = 0
 
             if not processed_text:
                 raise HTTPException(status_code=400, detail=f"Could not extract text from {file_ext} file")
 
             assert len(processed_text) > MINIMUM_TEXT_LENGTH, "Extracted text is too short"
-            
-            # Create chunks from processed text
-            chunks = self.chunk_text(processed_text)
             
             # Update progress
             if user_id:
@@ -258,7 +274,6 @@ class PDFService:
                 text=processed_text,
                 chunks=chunks
             ), cost
-            
         except Exception as e:
             logger.error(f"Error processing file: {str(e)}")
             if user_id:
@@ -271,7 +286,7 @@ class PDFService:
                 tracking_key = f"{user_id}:{file.filename}"
                 if tracking_key in self.upload_progress:
                     del self.upload_progress[tracking_key]
-    
+
     def is_valid_url(self, url: str) -> bool:
         """Validate URL format and supported domains"""
         if not validators.url(url):

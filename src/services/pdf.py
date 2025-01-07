@@ -176,22 +176,30 @@ class PDFService:
         output_cost = output_tokens * OUTPUT_TOKEN_RATES['gemini-1.5-flash']
         return input_cost + output_cost
 
-    async def process_pdf_with_gemini(self, content: bytes) -> Tuple[str, List[str], int, int]:
+    async def process_pdf_with_gemini(self, content: bytes, selected_pages: List[int] = None) -> Tuple[str, List[str], int, int]:
         """Process PDF content in parallel using page units. Returns (full_text, page_texts, input_tokens, output_tokens)"""
         
         pdf_doc = fitz.open(stream=content, filetype="pdf")
-        total_pages = min(len(pdf_doc), MAX_PAGES)
-        logger.info(f"Total pages (capped): {total_pages}")
+        total_pages = len(pdf_doc)
+        
+        # If pages are selected, use those; otherwise use first MAX_PAGES
+        if selected_pages:
+            pages_to_process = [p-1 for p in selected_pages if 0 < p <= total_pages]  # Convert to 0-based indexing
+            if not pages_to_process:
+                raise ValueError("No valid pages selected")
+        else:
+            pages_to_process = list(range(min(total_pages, MAX_PAGES)))
+            
+        logger.info(f"Processing pages: {[p+1 for p in pages_to_process]}")
 
-        # Process each page individually
+        # Process each selected page
         tasks = []
-        for page_num in range(total_pages):
-            unit_content = self.create_page_unit(pdf_doc, page_num, 1)  # One page per unit
+        for page_num in pages_to_process:
+            unit_content = self.create_page_unit(pdf_doc, page_num, 1)
             tasks.append(self.process_page_unit(unit_content, page_num))
 
         try:
             results = await asyncio.gather(*tasks)
-            # Unzip the results into separate lists
             page_texts, input_tokens, output_tokens = zip(*results)
             
             # Filter out any empty pages
@@ -209,7 +217,12 @@ class PDFService:
         finally:
             pdf_doc.close()
 
-    async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
+    async def process_pdf(
+        self, 
+        file: UploadFile, 
+        user_id: str = None,
+        selected_pages: List[int] = None
+    ) -> Tuple[PDFResponse, float]:
         """Process document file and return structured response"""
         try:
             await self.validate_file(file)
@@ -228,7 +241,10 @@ class PDFService:
             
             # Process based on file type
             if file_ext == '.pdf':
-                processed_text, chunks, input_tokens, output_tokens = await self.process_pdf_with_gemini(content)
+                processed_text, chunks, input_tokens, output_tokens = await self.process_pdf_with_gemini(
+                    content, 
+                    selected_pages=selected_pages
+                )
                 cost = self.calculate_gemini_cost(input_tokens, output_tokens)
                 logger.info(f"PDF processing cost: {cost}")
             else:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import Dict, Optional, Callable, Awaitable, Union, Dict, Any
@@ -290,12 +290,30 @@ async def get_upload_progress(
 @router.post("/documents/upload/file")
 async def upload_document_file(
     file: UploadFile = File(...),
+    pages: str = Form(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """Upload a document from a file"""
     try:
-        result, cost = await pdf_service.process_pdf(file, str(current_user.id))
+        # Parse selected pages if provided
+        selected_pages = None
+        if pages:
+            try:
+                selected_pages = [int(p) for p in json.loads(pages)]
+                if not all(p > 0 for p in selected_pages):
+                    raise ValueError("Page numbers must be positive")
+            except (json.JSONDecodeError, ValueError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid page selection format: {str(e)}"
+                )
+
+        result, cost = await pdf_service.process_pdf(
+            file,
+            user_id=str(current_user.id),
+            selected_pages=selected_pages
+        )
         display_name = file.filename
         
         if not result.success:

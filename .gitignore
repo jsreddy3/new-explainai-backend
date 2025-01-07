@@ -35,6 +35,8 @@ ENV/
 
 # Logs
 *.log
+*.log.gz
+logs/pdf
 
 # Local development settings
 .env.local
@@ -50,3 +52,8 @@ ENV/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+eval/
+src/services/gemini_pdf.py
+src/services/og_pdf.py
+explainai.db

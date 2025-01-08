@@ -190,6 +190,7 @@ class WebSocketHandler:
         conversation_type = data.get("conversation_type")
         request_id = data.get("request_id")
         question_id = data.get("question_id", "")  # Optional parameter
+        use_full_context = data.get("use_full_context", False)
 
         if not conversation_id:
             await self.websocket.send_json({
@@ -234,7 +235,8 @@ class WebSocketHandler:
                 "chunk_id": chunk_id,
                 "conversation_type": conversation_type,
                 "user": self.user,
-                "question_id": question_id
+                "question_id": question_id,
+                "use_full_context": use_full_context
             }
         ))
 

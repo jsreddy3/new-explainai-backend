@@ -26,6 +26,7 @@ class AIService:
         conversation_id: str,
         messages: List[Dict[str, str]],
         connection_id: str,
+        chat_model: str = CHAT_MODEL,
         request_id: Optional[str] = None,
         stream: bool = True,
         user_id: Optional[str] = None
@@ -74,21 +75,6 @@ class AIService:
                 messages=messages,  # Your input messages
                 completion=response  # The complete response we built
             )
-
-            # await self.message_logger.log_exchange(
-            #     document_id=document_id,
-            #     conversation_id=conversation_id,
-            #     messages=messages,
-            #     response=response,
-            #     metadata={
-            #         "model": self.MODEL,
-            #         "cost": cost,
-            #         "stream": stream,
-            #         "connection_id": connection_id,
-            #         "request_id": request_id
-            #     }
-            # )
-
 
             # Emit completion event
             await event_bus.emit(Event(

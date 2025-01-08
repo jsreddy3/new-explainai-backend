@@ -104,3 +104,20 @@ Here is the conversation history:
 {history}
 
 Please provide a helpful response to the user's next message."""
+
+    def create_full_context_system_prompt(self, full_document_text: str) -> str:
+        """Create system prompt for full context conversation"""
+        return FULL_CONTEXT_SYSTEM_PROMPT.format(
+            full_document_text=full_document_text
+        )
+
+    def create_full_context_highlight_system_prompt(
+        self, 
+        full_document_text: str, 
+        highlight_text: str
+    ) -> str:
+        """Create system prompt for full context highlight conversation"""
+        return FULL_CONTEXT_HIGHLIGHT_SYSTEM_PROMPT.format(
+            full_document_text=full_document_text,
+            highlight_text=highlight_text
+        )

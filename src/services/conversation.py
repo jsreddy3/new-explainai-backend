@@ -286,52 +286,84 @@ class ConversationService:
             conversation_id = event.data["conversation_id"]
             content = event.data["content"]
             chunk_id = event.data["chunk_id"]
-            user = event.data.get("user", None)  # Get user from event data
-            
+            user = event.data.get("user", None)
+            use_full_context = event.data.get("use_full_context", False)
+
             # Check cost limit first if user exists
             logger.info("Checking user cost limit for user: %s", user.id if user else "None")
             if user:
                 await check_user_cost_limit(db, user.id)
             
             # Get conversation
-            conversation = await self._get_conversation(conversation_id, db)  # Pass db
-            chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=conversation["chunk_id"], db=db) if conversation["chunk_id"] else None  # Pass db
-            
+            conversation = await self._get_conversation(conversation_id, db)
+            chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=conversation["chunk_id"], db=db) if conversation["chunk_id"] else None
+
             # 1. Store raw user message in DB
             message = await self._create_message(
                 conversation["id"], 
                 content, 
                 chunk_id if chunk_id else conversation["chunk_id"],
                 "user",
-                db=db  # Pass db
+                db=db
             )
             await db.commit()
             
-            # 2. Process the user message based on conversation type
+            # 2. Process the message and build context
             messages = []
-            if conversation["type"] == "highlight":
-                highlight_text = await self._get_highlight_text(conversation["id"], db)  # Pass db
-                processed_content = self.prompt_manager.create_highlight_user_prompt(
-                    user_message=content
-                )
-                messages = await self.get_conversation_messages(conversation["id"], db)
+            if use_full_context:
+                # Get full document content
+                full_document_text = await self._get_all_chunks(document_id, db)
+
+                # Get all conversation messages
+                all_messages = await self.get_conversation_messages(conversation["id"], db)
+                
+                # Add system prompt based on conversation type
+                if conversation["type"] == "highlight":
+                    highlight_text = await self._get_highlight_text(conversation["id"], db)
+                    system_prompt = self.prompt_manager.create_full_context_highlight_system_prompt(
+                        full_document_text=full_document_text,
+                        highlight_text=highlight_text
+                    )
+                else:
+                    system_prompt = self.prompt_manager.create_full_context_system_prompt(
+                        full_document_text=full_document_text
+                    )
+                
+                messages.append({"role": "system", "content": system_prompt})
+                
+                # Add conversation history
+                messages.extend(all_messages)
+                
+                # Add current user message
+                messages.append({
+                    "role": "user",
+                    "content": content
+                })
             else:
-                processed_content = self.prompt_manager.create_main_user_prompt(
-                    user_message=content
-                )
-                messages = await self._get_messages_with_chunk_switches(conversation, db)  # Pass db
+                # Regular context handling
+                if conversation["type"] == "highlight":
+                    highlight_text = await self._get_highlight_text(conversation["id"], db)
+                    processed_content = self.prompt_manager.create_highlight_user_prompt(
+                        user_message=content
+                    )
+                    messages = await self.get_conversation_messages(conversation["id"], db)
+                else:
+                    processed_content = self.prompt_manager.create_main_user_prompt(
+                        user_message=content
+                    )
+                    messages = await self._get_messages_with_chunk_switches(conversation, db)
 
+                if messages:
+                    messages[-1]["content"] = processed_content
 
-            if messages:
-                messages[-1]["content"] = processed_content
-
-            # 3. Send entire messages array to AI service
+            # 3. Send messages to AI service
             response, cost = await self.ai_service.chat(
                 document_id,
                 conversation_id,
                 messages=messages,
-                connection_id=event.connection_id,  # Pass the WebSocket connection_id
-                request_id=event.request_id  # Pass the request_id
+                connection_id=event.connection_id,
+                request_id=event.request_id,
+                chat_model="gemini-2.0-flash-exp" if use_full_context else None,
             )
                         
             # Add AI response in a new transaction
@@ -985,6 +1017,16 @@ class ConversationService:
             # Handle case where chunk_id can't be converted to int
             logger.error(f"Invalid chunk_id format: {chunk_id}")
             return None
+      
+    async def _get_all_chunks(self, document_id: str, db: AsyncSession) -> str:
+      """Get all chunks concatenated into full document text"""
+      chunks = await db.execute(
+          select(DocumentChunk)
+          .where(DocumentChunk.document_id == document_id)
+          .order_by(DocumentChunk.sequence)
+      )
+      chunks = chunks.scalars().all()
+      return "\n\n".join(chunk.content for chunk in chunks)
 
     async def _create_conversation(
         self,

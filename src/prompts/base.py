@@ -65,6 +65,7 @@ Guidelines:
 - Build on previous insights
 - Encourage deeper analysis
 - Stay as concise as possible while still remaining effective
+- Try to only ask questions related to the available chunk
 - Word count is at a premium"""
 
 HIGHLIGHT_QUESTION_SYSTEM_PROMPT = """You are generating insightful questions about a specific section of text.

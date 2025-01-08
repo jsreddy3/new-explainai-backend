@@ -884,15 +884,18 @@ class ConversationService:
       for idx, current_chunk_id, switch_msg, last_chunk_id in reversed(chunk_switches):
           chunks_to_add = set()
           
-          if last_chunk_id is not None:
-              # Add range of chunks for forward progression
+          if last_chunk_id is None:
+              # First chunk case - include everything up to this chunk
+              chunks_to_add.update(str(i) for i in range(int(current_chunk_id) + 1))
+          elif int(current_chunk_id) < int(last_chunk_id):
+              # Backwards jump - just include current chunk
+              chunks_to_add.add(current_chunk_id)
+          else:
+              # Forward progression - include range from last to current
               start = int(last_chunk_id)
               end = int(current_chunk_id)
               chunks_to_add.update(str(i) for i in range(start, end + 1))
-          else:
-              # Single chunk for backwards jumps
-              chunks_to_add.add(current_chunk_id)
-              
+
           # Filter out already seen chunks
           chunks_to_add = chunks_to_add - seen_chunks
           
@@ -903,7 +906,7 @@ class ConversationService:
                   if chunk:
                       chunk_contents.append(f"Chunk {chunk_id}: {chunk['content']}")
                       seen_chunks.add(chunk_id)
-              
+                      
               if chunk_contents:
                   processed_messages[idx]["content"] += f", chunkText: {' | '.join(chunk_contents)}"
 

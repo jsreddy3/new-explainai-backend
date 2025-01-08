@@ -819,60 +819,95 @@ class ConversationService:
             ))
 
     async def _get_messages_with_chunk_switches(self, conversation: Dict, db: AsyncSession) -> List[Dict]:
-        messages = await self.get_conversation_messages(conversation["id"], db)
-        
-        if conversation["type"] != "main":
-            return messages
-            
-        # First pass: Create basic structure with switches but no chunk content
-        processed_messages = []
-        last_chunk_id = None
-        system_message = None
-        chunk_switches = []  # Track all switch messages for second pass
-        
-        # First find and add system message if it exists
-        for msg in messages:
-            if msg.get("role") == "system":
-                system_message = msg
-                break
-                
-        if system_message:
-            processed_messages.append(system_message)
-        
-        # Process remaining messages
-        for msg in messages:
-            if msg.get("role") == "system":
-                continue
-                
-            current_chunk_id = msg.get("chunk_id", "")
-            
-            if current_chunk_id and current_chunk_id != last_chunk_id:
-                switch_msg = {
-                    "role": "user",
-                    "content": f"<switched to chunk ID {current_chunk_id}>"
-                }
-                ack_msg = {
-                    "role": "assistant", 
-                    "content": f"<acknowledged switch to chunk ID {current_chunk_id}>"
-                }
-                
-                chunk_switches.append((len(processed_messages), current_chunk_id, switch_msg))
-                processed_messages.append(switch_msg)
-                processed_messages.append(ack_msg)
-            
-            processed_messages.append(msg)
-            last_chunk_id = current_chunk_id
+      messages = await self.get_conversation_messages(conversation["id"], db)
+      if conversation["type"] != "main":
+          return messages
 
-        # Second pass: Add chunk content only to the most recent switch for each chunk ID
-        seen_chunks = set()
-        for idx, chunk_id, switch_msg in reversed(chunk_switches):
-            if chunk_id not in seen_chunks:
-                chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=chunk_id, db=db)
-                if chunk:
-                    processed_messages[idx]["content"] += f", chunkText: {chunk['content']}"
-                seen_chunks.add(chunk_id)
+      processed_messages = []
+      last_chunk_id = None
+      system_message = None
+      chunk_switches = []  # Track all switch messages for second pass
 
-        return processed_messages
+      # First find and add system message if it exists
+      for msg in messages:
+          if msg.get("role") == "system":
+              system_message = msg
+              break
+      if system_message:
+          processed_messages.append(system_message)
+
+      # Process remaining messages
+      for msg in messages:
+          if msg.get("role") == "system":
+              continue
+              
+          current_chunk_id = msg.get("chunk_id", "")
+          if current_chunk_id and current_chunk_id != last_chunk_id:
+              # Determine if this is a backwards jump
+              is_backwards = last_chunk_id is not None and int(current_chunk_id) < int(last_chunk_id)
+              
+              if is_backwards:
+                  # For backwards jumps, just switch to the single chunk
+                  switch_msg = {
+                      "role": "user",
+                      "content": f"<switched to chunk ID {current_chunk_id}>"
+                  }
+              else:
+                  # For forward progression, include range from last position
+                  chunk_range = f"{last_chunk_id}-{current_chunk_id}" if last_chunk_id else str(current_chunk_id)
+                  switch_msg = {
+                      "role": "user",
+                      "content": f"<switched to chunks {chunk_range}>"
+                  }
+              
+              ack_msg = {
+                  "role": "assistant",
+                  "content": f"<acknowledged switch to chunk{'s' if not is_backwards and last_chunk_id else ''} {chunk_range if not is_backwards else current_chunk_id}>"
+              }
+              
+              # Store switch info including range
+              chunk_switches.append((
+                  len(processed_messages),
+                  current_chunk_id,
+                  switch_msg,
+                  last_chunk_id if not is_backwards else None
+              ))
+              
+              processed_messages.append(switch_msg)
+              processed_messages.append(ack_msg)
+              
+          processed_messages.append(msg)
+          last_chunk_id = current_chunk_id
+
+      # Second pass: Add chunk content only to the most recent switch for each chunk
+      seen_chunks = set()
+      for idx, current_chunk_id, switch_msg, last_chunk_id in reversed(chunk_switches):
+          chunks_to_add = set()
+          
+          if last_chunk_id is not None:
+              # Add range of chunks for forward progression
+              start = int(last_chunk_id)
+              end = int(current_chunk_id)
+              chunks_to_add.update(str(i) for i in range(start, end + 1))
+          else:
+              # Single chunk for backwards jumps
+              chunks_to_add.add(current_chunk_id)
+              
+          # Filter out already seen chunks
+          chunks_to_add = chunks_to_add - seen_chunks
+          
+          if chunks_to_add:
+              chunk_contents = []
+              for chunk_id in sorted(chunks_to_add, key=int):
+                  chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=chunk_id, db=db)
+                  if chunk:
+                      chunk_contents.append(f"Chunk {chunk_id}: {chunk['content']}")
+                      seen_chunks.add(chunk_id)
+              
+              if chunk_contents:
+                  processed_messages[idx]["content"] += f", chunkText: {' | '.join(chunk_contents)}"
+
+      return processed_messages
 
     async def _get_current_chunk_id(self, conversation: Dict, db: AsyncSession) -> Optional[str]:
         if conversation["type"] != "main":

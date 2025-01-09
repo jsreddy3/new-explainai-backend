@@ -35,6 +35,7 @@ class Document(Base):
     owner_id = Column(String, ForeignKey('users.id'))
     title = Column(String)
     content = Column(Text)
+    s3_file_path = Column(String, nullable=True)  # New field for S3 file path
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     status = Column(String)

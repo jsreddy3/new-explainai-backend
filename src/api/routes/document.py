@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import Dict, Optional, Callable, Awaitable, Union, Dict, Any
@@ -295,6 +295,10 @@ async def upload_document_file(
 ) -> Dict[str, Any]:
     """Upload a document from a file"""
     try:
+        # Get file content
+        file_content = await file.read()
+        
+        # Process PDF content
         result, cost = await pdf_service.process_pdf(file, str(current_user.id))
         display_name = file.filename
         
@@ -311,12 +315,21 @@ async def upload_document_file(
             user.user_cost += float(cost)
             await db.flush()
             
-            # Create document
+            # Upload file to S3
+            document_service = DocumentService(db)
+            s3_path = await document_service.aws_service.upload_file(
+                file_content,
+                f"{uuid.uuid4()}_{display_name}",
+                content_type=file.content_type
+            )
+            
+            # Create document with S3 path
             document = Document(
                 title=display_name,
                 content=result.text,
                 owner_id=str(current_user.id),
                 status="ready",
+                s3_file_path=s3_path,  # Store S3 path
                 meta_data={
                     "topic_key": result.topicKey,
                     "chunks_count": len(result.chunks),
@@ -479,6 +492,74 @@ async def upload_document_url(
         logger.error(f"Document upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/documents/{document_id}/pdf")
+async def get_document_pdf(
+    document_id: str,
+    current_user: User = Depends(get_current_user_or_none),
+    db: AsyncSession = Depends(get_db)
+) -> bytes:
+    """Get the PDF file for a document
+    
+    Args:
+        document_id (str): The ID of the document
+        current_user (User): The authenticated user (optional for example documents)
+        db (AsyncSession): Database session
+    
+    Returns:
+        bytes: The PDF file content
+        
+    Raises:
+        HTTPException: If document not found, user not authorized, or file not found
+    """
+    try:
+        # Get document
+        query = select(Document).where(Document.id == document_id)
+        result = await db.execute(query)
+        document = result.scalar_one_or_none()
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+            
+        # Check if this is an example document
+        if document_id in settings.EXAMPLE_DOCUMENT_IDS:
+            # Allow access to example documents
+            pass
+        else:
+            # For non-example documents, require authenticated user who owns the document
+            if not current_user or document.owner_id != str(current_user.id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Not authorized to access this document"
+                )
+        
+        # Check if document has S3 file path
+        if not document.s3_file_path:
+            raise HTTPException(
+                status_code=404,
+                detail="PDF file not found for this document"
+            )
+            
+        # Get file from S3
+        document_service = DocumentService(db)
+        try:
+            file_content = await document_service.aws_service.get_file(document.s3_file_path)
+            return Response(
+                content=file_content,
+                media_type="application/pdf"
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving file from S3: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Error retrieving PDF file"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting document PDF: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: str,
@@ -513,6 +594,15 @@ async def delete_document(
                 status_code=403, 
                 detail="Not authorized to delete this document"
             )
+            
+        # Delete file from S3 if it exists
+        if document.s3_file_path:
+            document_service = DocumentService(db)
+            try:
+                await document_service.aws_service.delete_file(document.s3_file_path)
+            except Exception as e:
+                logger.error(f"Error deleting file from S3: {e}")
+                # Continue with deletion even if S3 deletion fails
             
         # Delete associated questions first
         await db.execute(

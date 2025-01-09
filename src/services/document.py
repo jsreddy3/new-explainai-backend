@@ -11,6 +11,7 @@ from ..models.database import Document, DocumentChunk
 from ..core.logging import setup_logger
 from ..core.events import Event, event_bus
 from ..db.session import engine
+from .aws import AWSService
 
 logger = setup_logger(__name__)
 
@@ -33,8 +34,10 @@ class DocumentService:
             # Task management
             self.task_queue = asyncio.Queue()
             self.active_tasks = set()
-            # self.semaphore = asyncio.Semaphore(10)
             self.shutdown_event = asyncio.Event()
+            
+            # Initialize AWS service
+            self.aws_service = AWSService()
             
             # Start processor
             self.processor_task = asyncio.create_task(self._process_tasks())

@@ -1,13 +1,13 @@
 """add user cost column
-Revision ID: add_user_cost_column
+Revision ID: add_user_cost
 Revises: 001
 Create Date: 2024-12-23
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = 'add_user_cost_column'
-down_revision = '001'  # points to your existing migration
+revision = 'add_user_cost'
+down_revision = '001'  
 depends_on = None
 
 def upgrade() -> None:

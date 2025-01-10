@@ -276,7 +276,8 @@ class WebSocketHandler:
             data={
                 "conversation_id": conversation_id,
                 "count": count,
-                "chunk_id": chunk_id
+                "chunk_id": chunk_id,
+                "user": self.user
             }
         ))
 
@@ -347,7 +348,7 @@ class WebSocketHandler:
     async def handle_create_main_conversation(self, data: Dict):
         """Handle request to create main conversation"""
         # document_id is already available in self.document_id
-        chunk_id = data.get("chunk_id")  # Optional
+        chunk_id = data.get("chunk_id") 
         request_id = data.get("request_id")
         
         await event_bus.emit(Event(
@@ -398,13 +399,16 @@ class WebSocketHandler:
       """Handle questions list request"""
       conversation_id = data.get("conversation_id")
       request_id = data.get("request_id")
+      chunk_id = data.get("chunk_id")
+      
+      if not chunk_id or not conversation_id:
+        await self.websocket.send_json({
+            "error": f"Missing required field: {'chunk_id' if not chunk_id else 'conversation_id'}",
+            "request_id": request_id,
+            "chunk_id": chunk_id
+        })
+        return
 
-      if not conversation_id:
-          await self.websocket.send_json({
-              "error": "Missing required field: conversation_id",
-              "request_id": request_id
-          })
-          return
 
       await event_bus.emit(Event(
           type="conversation.questions.list.requested",
@@ -412,7 +416,8 @@ class WebSocketHandler:
           connection_id=self.connection_id,
           request_id=request_id,
           data={
-              "conversation_id": conversation_id
+              "conversation_id": conversation_id,
+              "chunk_id": chunk_id
           }
       ))
 

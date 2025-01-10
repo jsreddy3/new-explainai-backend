@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
 from sqlalchemy.orm import sessionmaker
 from ..db.session import engine  # Add this if not already imported
-from sqlalchemy import select, update, and_
+from sqlalchemy import select, update, and_, cast, String
 import uuid
 from datetime import datetime
 from asyncio import TimeoutError
@@ -36,6 +36,7 @@ class ConversationService:
                 class_=AsyncSession,
                 expire_on_commit=True
             )
+    
             self.ai_service = AIService()  # Remove db dependency
             self.prompt_manager = PromptManager()
                 
@@ -149,14 +150,18 @@ class ConversationService:
             first_chunk = await self._get_first_chunk(document_id, db)
             
             # Create conversation with connection_id in meta_data for demo conversations
-            meta_data = {}
+            logger.info("Creating new metadata field for main conversation")
+            meta_data = {
+                "seen_chunks": []
+            }
+            # Initialize metadata for main conversation
             if is_demo:
                 meta_data["connection_id"] = event.connection_id
-                
+            chunk_id = "0"    
             conversation = await self._create_conversation(
                 document_id=document_id,
                 conversation_type="main",
-                chunk_id=0,
+                chunk_id=chunk_id,
                 db=db,
                 meta_data=meta_data,
                 is_demo=is_demo
@@ -167,27 +172,13 @@ class ConversationService:
             message_obj = await self._create_message(
                 conversation["id"], 
                 system_prompt,
-                0,
+                chunk_id,
                 "system",
                 db=db
             )
             
             await db.commit()
             logger.info(f"Created new main conversation for connection {event.connection_id}")
-
-            # Generate initial questions after creation
-            questions_request_id = f"{event.request_id}_questions"
-            await self.handle_generate_questions(Event(
-                type="conversation.questions.generate.requested",
-                connection_id=event.connection_id,
-                document_id=document_id,
-                request_id=questions_request_id,
-                data={
-                    "conversation_id": str(conversation["id"]),
-                    "user": event.data.get("user", None),
-                    "document_id": document_id,
-                }
-            ), db)
 
             await event_bus.emit(Event(
                 type="conversation.main.create.completed",
@@ -226,6 +217,7 @@ class ConversationService:
                 meta_data["connection_id"] = event.connection_id
                 
             # Create conversation
+            logger.info("Creating new chunk conversation (highlight) and rewriting metadata")
             conversation = await self._create_conversation(
                 document_id=document_id,
                 conversation_type="highlight",
@@ -258,7 +250,8 @@ class ConversationService:
                 data={
                     "conversation_id": str(conversation["id"]),
                     "user": event.data.get("user", None),
-                    "document_id": document_id
+                    "document_id": document_id,
+                    "chunk_id": event.data.get("chunk_id", None)
                 }
             ), db)
             
@@ -421,22 +414,22 @@ class ConversationService:
 
     async def handle_generate_questions(self, event: Event, db: AsyncSession, emit_event: bool = True):
         try:
-            data = event.data
-            conversation_id = data["conversation_id"]
-            document_id = data["document_id"]
-            user = data.get("user", None)
-            
+            conversation_id = event.data["conversation_id"]
+            document_id = event.document_id
+            user = event.data.get("user", None)
+            chunk_id = event.data.get("chunk_id", None)
             # Check cost limit first if user exists
             if user:
                 await check_user_cost_limit(db, user.id)
             
             # Get conversation and chunk
             conversation = await self._get_conversation(conversation_id, db)  # Pass db
-            chunk = await self._get_chunk(document_id=conversation["document_id"], chunk_id=conversation["chunk_id"], db=db) if conversation["chunk_id"] else None  # Pass db
+            chunk = await self._get_chunk(document_id=document_id, chunk_id=chunk_id, db=db) 
             
             # Get previous questions
-            previous_questions = await self._get_previous_questions(conversation_id, db)  # Pass db
-            
+            previous_questions = await self._get_previous_questions(conversation_id, chunk_id, db)  # Pass db
+            logger.info(f"Previous questions count: {len(previous_questions)}")
+        
             # Generate questions based on conversation type
             if conversation["type"] == "highlight":
                 highlight_text = await self._get_highlight_text(conversation_id, db)  # Pass db
@@ -454,7 +447,7 @@ class ConversationService:
                 )
             
             questions, cost = await self.ai_service.generate_questions(
-                document_id=conversation["document_id"],
+                document_id=document_id,
                 request_id=event.request_id,
                 conversation_id=conversation_id,
                 system_prompt=system_prompt,
@@ -471,18 +464,24 @@ class ConversationService:
             questions_to_add = []
             for question in questions[:3]:
                 if question.strip():
-                    questions_to_add.append(Question(
+                    new_question = Question(
                         conversation_id=conversation_id,
                         content=question.strip(),
-                        meta_data={"chunk_id": conversation["chunk_id"]}
-                    ))
+                        meta_data={"chunk_id": chunk_id},
+                        answered=False
+                    )
+                    questions_to_add.append(new_question)
+                    logger.info(f"Preparing to add question: {new_question.content}")
+                    logger.info(f"Question metadata: {new_question.meta_data}")
+                    logger.info(f"Question conversation-id: {new_question.conversation_id}" )
             db.add_all(questions_to_add)
             await db.commit()
+            logger.info(f"Successfully added {len(questions_to_add)} questions to database")
 
             if emit_event:
                 await event_bus.emit(Event(
                     type="conversation.questions.generate.completed",
-                    document_id=conversation["document_id"],
+                    document_id=document_id,
                     connection_id=event.connection_id,
                     request_id=event.request_id,
                     data={
@@ -498,7 +497,7 @@ class ConversationService:
             logger.error(f"Error generating questions: {e}")
             await event_bus.emit(Event(
                 type="conversation.questions.generate.error",
-                document_id=event.document_id,
+                document_id=document_id,
                 connection_id=event.connection_id,
                 request_id=event.request_id,
                 data={"error": str(e)}
@@ -507,12 +506,13 @@ class ConversationService:
     async def handle_merge_conversations(self, event: Event, db: AsyncSession):
         try:
             data = event.data
+            document_id = event.document_id
             main_conversation_id = data["main_conversation_id"]
             highlight_conversation_id = data["highlight_conversation_id"]
             
             # Get conversations
             highlight_conversation = await self._get_conversation(highlight_conversation_id, db)
-            chunk = await self._get_chunk(document_id=highlight_conversation["document_id"], chunk_id=highlight_conversation["chunk_id"], db=db)
+            chunk = await self._get_chunk(document_id=document_id, chunk_id=highlight_conversation["chunk_id"], db=db)
             highlight_text = await self._get_highlight_text(highlight_conversation_id, db)
             
             # Format conversation history for summary
@@ -526,7 +526,7 @@ class ConversationService:
             )
             
             summary, cost = await self.ai_service.generate_summary(
-                document_id=highlight_conversation["document_id"],
+                document_id=document_id,
                 request_id=event.request_id,
                 conversation_id=highlight_conversation_id,
                 system_prompt=system_prompt,
@@ -560,7 +560,7 @@ class ConversationService:
             
             await event_bus.emit(Event(
                 type="conversation.merge.completed",
-                document_id=highlight_conversation["document_id"],
+                document_id=document_id,
                 connection_id=event.connection_id,
                 request_id=event.request_id,
                 data={
@@ -575,7 +575,7 @@ class ConversationService:
             logger.error(f"Error merging conversations: {e}")
             await event_bus.emit(Event(
                 type="conversation.merge.error",
-                document_id=event.document_id,
+                document_id=document_id,
                 connection_id=event.connection_id,
                 request_id=event.request_id,
                 data={"error": str(e)}
@@ -585,8 +585,44 @@ class ConversationService:
       try:
           conversation_id = event.data["conversation_id"]
           document_id = event.document_id
-          questions = await self.get_conversation_questions_unanswered(conversation_id, db)
+          chunk_id = event.data.get("chunk_id", None)
+          # Retrieve the conversation to access its metadata
+          query = select(Conversation).where(Conversation.id == conversation_id)
+          result = await db.execute(query)
+          conversation = result.scalar_one_or_none()
           
+          if conversation is None:
+            raise ValueError(f"Conversation with ID {conversation_id} not found")
+
+          logger.info(f"***Conversation metadata***: {conversation.meta_data}")
+          seen_chunks = conversation.meta_data.get('seen_chunks', []).copy()
+          logger.info(f"Original metadata: {conversation.meta_data}")
+          logger.info(f"Current seen_chunks: {seen_chunks}")
+        
+        # Generate new questions for this chunk
+          if chunk_id not in seen_chunks:
+            logger.info(f"Chunk {chunk_id} not in seen chunks. Generating questions.")
+            updated_seen_chunks = seen_chunks + [str(chunk_id)]
+            conversation.meta_data = {
+                **conversation.meta_data,
+                'seen_chunks': updated_seen_chunks
+            }
+            db.add(conversation)
+            await db.commit()
+            await db.refresh(conversation)
+            logger.info(f"Post-update seen_chunks from database: {conversation.meta_data.get('seen_chunks')}")
+            logger.info(f"Updated seen_chunks: {conversation.meta_data.get('seen_chunks')}")
+            
+            # Confirm database update
+            if chunk_id in conversation.meta_data.get('seen_chunks', []):
+                logger.info(f"Successfully updated database with chunk {chunk_id}")
+            else:
+                logger.warning(f"Database update for chunk {chunk_id} may have failed")
+            
+            # If chunk hasn't been seen, generate new questions
+            await self.handle_generate_questions(event, db)
+
+          questions = await self.get_conversation_questions_unanswered(conversation_id, db, chunk_id)
           await event_bus.emit(Event(
               type="conversation.questions.list.completed",
               document_id=document_id,
@@ -594,9 +630,11 @@ class ConversationService:
               request_id=event.request_id,
               data={
                   "conversation_id": conversation_id,
+                  "chunk_id": chunk_id,
                   "questions": questions  # Send the full question objects
               }
           ))
+          logger.info(f"Emitted questions list completed event with {len(questions)} questions")
       except Exception as e:
           logger.error(f"Error listing questions: {e}")
           await event_bus.emit(Event(
@@ -610,7 +648,8 @@ class ConversationService:
     async def handle_regenerate_questions(self, event: Event, db: AsyncSession):
       try:
           conversation_id = event.data["conversation_id"]
-          
+          chunk_id = event.data.get("chunk_id", None)
+          document_id = event.document_id
           # Mark existing questions as answered
           await db.execute(
               update(Question)
@@ -618,20 +657,18 @@ class ConversationService:
               .values(answered=True)
           )
           await db.commit()
-
-          # Get the conversation to get its document_id
-          conversation = await self._get_conversation(conversation_id, db)
           
           # Generate questions without event emission
           questions = await self.handle_generate_questions(
               Event(
                   type="conversation.questions.generate.requested",
-                  document_id=conversation["document_id"],
+                  document_id=document_id,
                   connection_id=event.connection_id,
                   data={
                       "conversation_id": conversation_id,
-                      "document_id": conversation["document_id"],
-                      "user": event.data.get("user")
+                      "document_id": document_id,
+                      "user": event.data.get("user"),
+                      "chunk_id": chunk_id
                   }
               ), 
               db,
@@ -641,7 +678,7 @@ class ConversationService:
           # Emit regeneration completed event
           await event_bus.emit(Event(
               type="conversation.questions.regenerate.completed",
-              document_id=conversation["document_id"],
+              document_id=document_id,
               connection_id=event.connection_id,
               request_id=event.request_id,
               data={
@@ -654,7 +691,7 @@ class ConversationService:
           logger.error(f"Error regenerating questions: {e}")
           await event_bus.emit(Event(
               type="conversation.questions.regenerate.error",
-              document_id=event.document_id,
+              document_id=document_id,
               connection_id=event.connection_id,
               request_id=event.request_id,
               data={"error": str(e)}
@@ -987,27 +1024,34 @@ class ConversationService:
         )
         return [q.to_dict() for q in result.scalars().all()]
 
-    async def get_conversation_questions_unanswered(self, conversation_id: str, db: AsyncSession) -> List[Dict]:
+    async def get_conversation_questions_unanswered(self, conversation_id: str, db: AsyncSession, chunk_id: str) -> List[Dict]:
+      logger.info(f"Retrieving unanswered questions - Conversation ID: {conversation_id}, Chunk ID: {chunk_id}")
       result = await db.execute(
           select(Question)
           .where(
               and_(
                   Question.conversation_id == conversation_id,
+                  Question.meta_data['chunk_id'].as_string() == str(chunk_id),
                   Question.answered == False
               )
           )
           .order_by(Question.created_at)
       )
-      return [q.to_dict() for q in result.scalars().all()]
+      questions = result.scalars().all()
+      logger.info(f"Query result count: {len(questions)}")
+      for q in questions:
+        logger.info(f"Question details: {q.to_dict()}")
+      return [q.to_dict() for q in questions]
 
     async def _get_conversation(self, conversation_id: str, db: AsyncSession) -> Dict:
         conversation = await db.get(Conversation, conversation_id)
         return conversation.to_dict() if conversation else None
 
-    async def _get_previous_questions(self, conversation_id: str, db: AsyncSession) -> List[Dict]:
+    async def _get_previous_questions(self, conversation_id: str, chunk_id: str, db: AsyncSession) -> List[Dict]:
         result = await db.execute(
             select(Question)
             .where(Question.conversation_id == conversation_id)
+            .where(cast(Question.meta_data['chunk_id'], String)== chunk_id)
             .order_by(Question.created_at)
         )
         return [q.to_dict() for q in result.scalars().all()]

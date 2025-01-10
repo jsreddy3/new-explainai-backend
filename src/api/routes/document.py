@@ -290,6 +290,7 @@ async def get_upload_progress(
 @router.post("/documents/upload/file")
 async def upload_document_file(
     file: UploadFile = File(...),
+    page_range: Optional[str] = Query(None, description="Page range in format 'start-end' (e.g., '1-10'). If not provided, processes first 8 pages."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -299,8 +300,13 @@ async def upload_document_file(
         file_content = await file.read()
         
         # Process PDF content
-        result, cost = await pdf_service.process_pdf(file, str(current_user.id))
-        display_name = file.filename
+        result, cost, actual_range = await pdf_service.process_pdf(file, str(current_user.id), page_range=page_range)
+        
+        # Create display name with page range
+        base_name = file.filename.rsplit('.', 1)[0]
+        extension = file.filename.rsplit('.', 1)[1] if '.' in file.filename else ''
+        page_suffix = f" (P. {actual_range})" if actual_range else ""
+        display_name = f"{base_name}{page_suffix}.{extension}" if extension else f"{base_name}{page_suffix}"
         
         if not result.success:
             logger.error(f"Processing failed: {result.text}")
@@ -333,6 +339,7 @@ async def upload_document_file(
                 meta_data={
                     "topic_key": result.topicKey,
                     "chunks_count": len(result.chunks),
+                    "page_range": actual_range
                 }
             )
             db.add(document)

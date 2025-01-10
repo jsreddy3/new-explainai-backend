@@ -1,6 +1,6 @@
 from fastapi import UploadFile, HTTPException
 import base64
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import google.generativeai as genai
 from pydantic import BaseModel
 import time
@@ -176,40 +176,81 @@ class PDFService:
         output_cost = output_tokens * OUTPUT_TOKEN_RATES['gemini-1.5-flash']
         return input_cost + output_cost
 
-    async def process_pdf_with_gemini(self, content: bytes) -> Tuple[str, List[str], int, int]:
-        """Process PDF content in parallel using page units. Returns (full_text, page_texts, input_tokens, output_tokens)"""
+    def parse_page_range(self, page_range: Optional[str], total_pages: int) -> Tuple[int, int, str]:
+        """Parse a page range string in format 'start-end' and return normalized page indices.
         
+        Args:
+            page_range: String in format 'start-end' (e.g., '1-10')
+            total_pages: Total number of pages in the document
+            
+        Returns:
+            Tuple of (start_page, end_page, actual_range) where actual_range reflects any adjustments made
+        """
+        actual_range = page_range
+        
+        if not page_range:
+            # Default to first 8 pages if no range specified
+            return 0, min(MAX_PAGES, total_pages), "1-8"
+        
+        try:
+            start, end = map(int, page_range.split('-'))
+            # Convert to 0-based indexing and handle bounds
+            start = max(0, start - 1)  # Convert from 1-based to 0-based
+            end = min(total_pages, end)  # Cap at total pages
+            
+            if start >= end:
+                start = 0
+                end = min(MAX_PAGES, total_pages)
+                actual_range = "1-8"
+            
+            # Enforce maximum of 16 pages by limiting the range
+            if end - start > 16:
+                end = start + 16
+                actual_range = f"{start + 1}-{end}"  # Convert back to 1-based for display
+                logger.info(f"Range exceeded 16 pages, limiting to: {actual_range}")
+            
+            return start, end, actual_range
+        except ValueError:
+            # If format is invalid, default to first 8 pages
+            return 0, min(MAX_PAGES, total_pages), "1-8"
+
+    async def process_pdf_with_gemini(self, content: bytes, page_range: Optional[str] = None) -> Tuple[str, List[str], int, int, str]:
+        """Process PDF content in parallel using page units."""
         pdf_doc = fitz.open(stream=content, filetype="pdf")
-        total_pages = min(len(pdf_doc), MAX_PAGES)
-        logger.info(f"Total pages (capped): {total_pages}")
-
-        # Process each page individually
+        total_pages = len(pdf_doc)
+        
+        # Get page range to process
+        start_page, end_page, actual_range = self.parse_page_range(page_range, total_pages)
+        pages_to_process = range(start_page, end_page)
+        
+        logger.info(f"Processing pages {start_page + 1} to {end_page} of {total_pages}")
+        
+        # Process selected pages
         tasks = []
-        for page_num in range(total_pages):
-            unit_content = self.create_page_unit(pdf_doc, page_num, 1)  # One page per unit
+        for page_num in pages_to_process:
+            unit_content = self.create_page_unit(pdf_doc, page_num, 1)
             tasks.append(self.process_page_unit(unit_content, page_num))
-
+        
         try:
             results = await asyncio.gather(*tasks)
-            # Unzip the results into separate lists
             page_texts, input_tokens, output_tokens = zip(*results)
             
-            # Filter out any empty pages
+            # Filter out empty pages
             page_texts = [text for text in page_texts if text]
             
-            # Combine all text for full document
+            # Combine text
             combined_text = '\n\n'.join(page_texts)
             total_input_tokens = sum(input_tokens)
             total_output_tokens = sum(output_tokens)
             
-            return combined_text, list(page_texts), total_input_tokens, total_output_tokens
+            return combined_text, list(page_texts), total_input_tokens, total_output_tokens, actual_range
         except Exception as e:
             pdf_doc.close()
             raise e
         finally:
             pdf_doc.close()
 
-    async def process_pdf(self, file: UploadFile, user_id: str = None) -> Tuple[PDFResponse, float]:
+    async def process_pdf(self, file: UploadFile, user_id: str = None, page_range: Optional[str] = None) -> Tuple[PDFResponse, float, str]:
         """Process document file and return structured response"""
         try:
             await self.validate_file(file)
@@ -228,13 +269,17 @@ class PDFService:
             
             # Process based on file type
             if file_ext == '.pdf':
-                processed_text, chunks, input_tokens, output_tokens = await self.process_pdf_with_gemini(content)
+                processed_text, chunks, input_tokens, output_tokens, actual_range = await self.process_pdf_with_gemini(
+                    content,
+                    page_range=page_range
+                )
                 cost = self.calculate_gemini_cost(input_tokens, output_tokens)
                 logger.info(f"PDF processing cost: {cost}")
             else:
                 processed_text, chunks = await self.extract_text_from_file(content, file_ext)
                 cost = 0
-
+                actual_range = None
+            
             if not processed_text:
                 raise HTTPException(status_code=400, detail=f"Could not extract text from {file_ext} file")
 
@@ -253,7 +298,7 @@ class PDFService:
                 display=filename,
                 text=processed_text,
                 chunks=chunks
-            ), cost
+            ), cost, actual_range
         except Exception as e:
             logger.error(f"Error processing file: {str(e)}")
             if user_id:

@@ -41,7 +41,7 @@ Rules:
 1. Include EVERY single paragraph and sentence, from the very first word to the very last word
 2. Preserve the original formatting and structure exactly
 3. Maintain all paragraph breaks and line formatting exactly as they appear
-4. Ignore headers, footers, and metadata
+4. Ignore text that is NOT part of the main content, such as publishing/printing information, headers, footers, and metadata
 5. Never truncate or skip any portion of the text
 6. DO NOT use double dots for periods or ellipses. DO NOT USE "..", use single dot "."
 7. Make sure the last paragraph is complete and not cut off

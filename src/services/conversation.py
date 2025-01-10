@@ -150,7 +150,6 @@ class ConversationService:
             first_chunk = await self._get_first_chunk(document_id, db)
             
             # Create conversation with connection_id in meta_data for demo conversations
-            logger.info("Creating new metadata field for main conversation")
             meta_data = {
                 "seen_chunks": []
             }
@@ -428,7 +427,7 @@ class ConversationService:
             
             # Get previous questions
             previous_questions = await self._get_previous_questions(conversation_id, chunk_id, db)  # Pass db
-            logger.info(f"Previous questions count: {len(previous_questions)}")
+            # logger.info(f"Previous questions count: {len(previous_questions)}")
         
             # Generate questions based on conversation type
             if conversation["type"] == "highlight":
@@ -471,9 +470,6 @@ class ConversationService:
                         answered=False
                     )
                     questions_to_add.append(new_question)
-                    logger.info(f"Preparing to add question: {new_question.content}")
-                    logger.info(f"Question metadata: {new_question.meta_data}")
-                    logger.info(f"Question conversation-id: {new_question.conversation_id}" )
             db.add_all(questions_to_add)
             await db.commit()
             logger.info(f"Successfully added {len(questions_to_add)} questions to database")
@@ -594,10 +590,7 @@ class ConversationService:
           if conversation is None:
             raise ValueError(f"Conversation with ID {conversation_id} not found")
 
-          logger.info(f"***Conversation metadata***: {conversation.meta_data}")
           seen_chunks = conversation.meta_data.get('seen_chunks', []).copy()
-          logger.info(f"Original metadata: {conversation.meta_data}")
-          logger.info(f"Current seen_chunks: {seen_chunks}")
         
         # Generate new questions for this chunk
           if chunk_id not in seen_chunks:
@@ -610,14 +603,6 @@ class ConversationService:
             db.add(conversation)
             await db.commit()
             await db.refresh(conversation)
-            logger.info(f"Post-update seen_chunks from database: {conversation.meta_data.get('seen_chunks')}")
-            logger.info(f"Updated seen_chunks: {conversation.meta_data.get('seen_chunks')}")
-            
-            # Confirm database update
-            if chunk_id in conversation.meta_data.get('seen_chunks', []):
-                logger.info(f"Successfully updated database with chunk {chunk_id}")
-            else:
-                logger.warning(f"Database update for chunk {chunk_id} may have failed")
             
             # If chunk hasn't been seen, generate new questions
             await self.handle_generate_questions(event, db)
@@ -1038,9 +1023,6 @@ class ConversationService:
           .order_by(Question.created_at)
       )
       questions = result.scalars().all()
-      logger.info(f"Query result count: {len(questions)}")
-      for q in questions:
-        logger.info(f"Question details: {q.to_dict()}")
       return [q.to_dict() for q in questions]
 
     async def _get_conversation(self, conversation_id: str, db: AsyncSession) -> Dict:

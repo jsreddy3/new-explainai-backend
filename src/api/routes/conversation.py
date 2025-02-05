@@ -505,8 +505,22 @@ async def conversation_stream(
     try:
         # Get user (might be None for example documents)
         auth_service = AuthService(db)
-        user = await get_current_user_or_none(token, document_id, auth_service)
-        logger.info("User: %s", user)
+        try:
+            # For example documents, allow None token
+            if document_id in settings.EXAMPLE_DOCUMENT_IDS:
+                user = None
+            else:
+                # For all other documents, require valid token
+                if not token:
+                    await websocket.close(code=4001, reason="Not authenticated")
+                    return
+                user = await auth_service.get_current_user(token)
+                if not user:
+                    await websocket.close(code=4001, reason="Invalid token")
+                    return
+        except ValueError as e:
+            await websocket.close(code=4001, reason=str(e))
+            return
 
         handler = WebSocketHandler(websocket, document_id, user, db)
         connection_id = await handler.connect()

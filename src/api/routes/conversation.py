@@ -518,4 +518,5 @@ async def conversation_stream(
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for document {document_id}")
     finally:
-        await handler.cleanup()
+        if 'handler' in locals():
+            await handler.cleanup()
